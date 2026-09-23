@@ -666,7 +666,7 @@ function bindTC(m){
 }
 
 /* ---------- load ---------- */
-/* Team logo: 1) a file dropped in assets/logos/<TEAM>.png|.svg|.webp|.jpg (shared with everyone who opens the site)
+/* Team logo: 1) a file named <TEAM>.png|.svg|.webp|.jpg next to index.html (or in assets/logos/) (shared with everyone who opens the site)
                2) otherwise, an image uploaded in the browser (remembered in this browser only) */
 function showLogo(team,src){
   const h=$('#hlogo');h.style.backgroundImage=src?`url("${String(src).replace(/"/g,'%22')}")`:'none';
@@ -681,8 +681,8 @@ async function setLogo(team){
   if(src){showLogo(team,src);return}
   showLogo(team,null);
   const safe=String(team||'').replace(/[^A-Za-z0-9_-]/g,'');if(!safe)return;
-  for(const ext of['png','svg','webp','jpg']){
-    const hit=await probe(`assets/logos/${safe}.${ext}`);
+  for(const path of['','assets/logos/'])for(const ext of['png','svg','webp','jpg']){
+    const hit=await probe(`${path}${safe}.${ext}`);
     if(tok!==logoToken)return;
     if(hit){showLogo(team,hit);return}
   }
@@ -737,12 +737,14 @@ $('#toggleUpload').addEventListener('click',()=>{const u=$('#upload');u.hidden=!
    the four CSVs it lists are loaded on open. Otherwise the upload panel opens. */
 async function autoLoad(){
   try{
-    const r=await fetch('data/manifest.json',{cache:'no-store'});
+    // manifest.json may sit next to index.html or inside a data/ folder; CSV paths are relative to it
+    let base='',r=await fetch('manifest.json',{cache:'no-store'});
+    if(!r.ok){base='data/';r=await fetch('data/manifest.json',{cache:'no-store'})}
     if(!r.ok)throw new Error('no manifest');
     const man=await r.json();
     const files=[man.savant,man.stuff,man.location,man.pitching].filter(Boolean);
     if(!files.length)throw new Error('empty manifest');
-    for(const f of files){const res=await fetch('data/'+f,{cache:'no-store'});if(!res.ok)throw new Error('missing '+f);ingest(await res.text(),f)}
+    for(const f of files){const res=await fetch(base+f,{cache:'no-store'});if(!res.ok)throw new Error('missing '+f);ingest(await res.text(),f)}
     tryBuild();
   }catch(err){
     const u=$('#upload');u.hidden=false;$('#toggleUpload').setAttribute('aria-expanded','true');render();
