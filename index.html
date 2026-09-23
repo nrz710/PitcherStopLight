@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="description" content="Start-by-start pitcher review: stop-light grades vs. personal norms from Baseball Savant and FanGraphs exports.">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Start Signal — pitcher start review</title>
+<title>Start Signal — admin</title>
+<meta name="robots" content="noindex, nofollow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="papaparse.min.js"></script>
 <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-mode="admin">
 <div class="wrap">
   <header class="top">
     <div class="hlogo" id="hlogo" aria-hidden="true"></div>
@@ -19,12 +20,23 @@
       <h1 id="title">Start Signal</h1>
       <p id="subtitle"></p>
     </div>
-    <button class="btn" id="toggleUpload" aria-expanded="false" aria-controls="upload">Upload files</button>
+    <div class="hbtns">
+      <span class="who" id="who"></span>
+      <button class="btn" id="playersBtn" type="button" aria-expanded="false" aria-controls="playersPanel">Players</button>
+      <button class="btn" id="toggleUpload" type="button" aria-expanded="false" aria-controls="upload">Upload files</button>
+      <button class="btn" id="publishBtn" type="button" aria-expanded="false" aria-controls="publishPanel" disabled>Publish</button>
+      <button class="btn" id="signOut" type="button">Sign out</button>
+    </div>
   </header>
 
+  <section class="upload" id="playersPanel" hidden>
+    <div class="phead"><h2>Players</h2><div class="pbtns"><button class="btn primary" id="newPlayer" type="button">New player</button><button class="btn" id="refreshPlayers" type="button">Refresh</button></div></div>
+    <div id="playersList"></div>
+  </section>
+
   <section class="upload" id="upload" hidden>
-    <h2>Upload a pitcher's season</h2>
-    <p>Add one Baseball Savant pitch-by-pitch export and the three FanGraphs game logs (Stuff+, Location+, Pitching+ splits), plus the team logo. Drop the CSVs at once and each is sorted into its slot by its column headers.</p>
+    <h2 id="uploadTitle">Upload files</h2>
+    <p>Add one Baseball Savant pitch-by-pitch export, the three FanGraphs game logs (Stuff+, Location+, Pitching+ splits) and the team logo. Select or drop all five at once and each is sorted into its slot automatically.</p>
     <div class="slots">
       <button class="slot" data-slot="savant"><b>Baseball Savant pitch log</b><span>Choose .csv</span></button>
       <button class="slot" data-slot="stf"><b>FanGraphs Stuff+ game log</b><span>Choose .csv</span></button>
@@ -32,10 +44,21 @@
       <button class="slot" data-slot="pit"><b>FanGraphs Pitching+ game log</b><span>Choose .csv</span></button>
       <button class="slot logo-slot" id="logoSlot" type="button"><b>Team logo</b><span id="logoSlotTxt">Choose an image (PNG or SVG)</span></button>
     </div>
-    <div class="drop" id="drop">Or drop the four CSV files here</div>
+    <div class="drop" id="drop">Drop all five files here, or <button type="button" class="linkbtn" id="pickAll">choose files</button></div>
     <input type="file" id="logoFile" accept="image/png,image/svg+xml,image/jpeg,image/webp,image/gif" hidden>
-    <input type="file" id="fileAny" accept=".csv,text/csv" multiple hidden>
+    <input type="file" id="fileAny" accept=".csv,text/csv,image/png,image/svg+xml,image/jpeg,image/webp,image/gif" multiple hidden>
     <div class="msg" id="msg" role="status"></div>
+  </section>
+
+  <section class="upload" id="publishPanel" hidden>
+    <h2>Publish <span id="pubWho"></span></h2>
+    <p id="pubTarget" class="meta"></p>
+    <div class="exgrid">
+      <label>Player folder <span class="exrow"><em>players/</em><input id="pubSlug" type="text" spellcheck="false" autocomplete="off"><em>/</em></span></label>
+      <label>Player password <span class="exrow"><input id="pubPass" type="text" spellcheck="false" autocomplete="off"><button class="btn" type="button" id="pubGen">Generate</button></span></label>
+    </div>
+    <button class="btn primary" type="button" id="pubGo">Publish to player folder</button>
+    <div class="msg" id="pubMsg" role="status"></div>
   </section>
 
   <main id="app"><div class="empty">Loading…</div></main>
@@ -52,6 +75,7 @@
       <p><b>Sources and caveats.</b> FanGraphs codes Savant's sweeper as SL and slurve as CU; the tool maps these automatically. If a FanGraphs file includes a season total row, that row is used as the average; otherwise the average is computed from the game rows. Single-start grades on low-volume pitches are noisy, and trait correlations rest on roughly two dozen outings, so treat them as leads, not laws.</p>
     </div>
   </details>
+  <p class="updated" id="updated" hidden></p>
 </div>
 
 <script src="app.js"></script>

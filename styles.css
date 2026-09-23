@@ -260,3 +260,46 @@ button{font:inherit;color:inherit}
 .tcwrap .sec{margin-top:0;border:2px solid #8A5238}
 .cpick{display:flex;align-items:center;gap:8px}
 .lt{font-weight:700}.lt.green{color:var(--grn)}.lt.yellow{color:var(--amber)}.lt.red{color:var(--red)}.lt.off{color:var(--ink-dim)}
+.hbtns{position:relative;z-index:1;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.top .hbtns .btn{padding:6px 12px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--housing);border-color:var(--housing);color:#1d1a0e}
+.linkbtn{background:none;border:0;padding:0;color:var(--ink);font-weight:700;text-decoration:underline;cursor:pointer}
+.exgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:12px}
+.exgrid label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--ink-dim)}
+.exrow{display:flex;align-items:center;gap:6px}
+.exrow em{font-style:normal;color:var(--ink-dim)}
+.exgrid input,.gate input[type=password]{font:inherit;font-size:15px;color:var(--ink);background:var(--panel-2);border:1.5px solid var(--rule);border-radius:8px;padding:7px 10px;flex:1;min-width:0}
+.gate{max-width:380px;margin:40px auto;display:flex;flex-direction:column;gap:12px;padding:22px}
+.gate h2{font-family:var(--display);font-weight:800;font-size:28px;margin:0}
+.gate .rem{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink-dim)}
+.updated{margin:14px 0 0;font-size:12.5px;color:var(--ink-dim)}
+.method{margin-top:18px}
+.method summary{font-family:var(--body);font-weight:600;font-size:13px;color:var(--ink-dim)}
+.method .body{font-size:12.5px;color:var(--ink-dim);margin-top:8px}
+.method[hidden]{display:none}
+body:not(.authed) .hbtns{display:none}
+.who{font-size:12px;color:var(--ink-dim);align-self:center;margin-right:4px}
+.phead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.phead h2{margin:0}
+.pbtns{display:flex;gap:8px}
+.btn.sm{padding:3px 9px;font-size:12px;box-shadow:none}
+.btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 45%,var(--rule))}
+.ptab{width:100%;border-collapse:collapse;font-size:13.5px}
+.ptab th,.ptab td{padding:8px 6px;border-top:1px solid var(--rule);text-align:left;vertical-align:middle}
+.ptab th{font-size:11.5px;color:var(--ink-dim);font-weight:600}
+.ptab td small{display:block;color:var(--ink-dim);font-size:11.5px}
+.ptab td a{color:var(--ink)}
+.ptab tr.cur td{background:color-mix(in srgb,var(--housing) 10%,transparent)}
+.ptab .acts{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.ptab code,.msg code{background:var(--panel-2);padding:1px 6px;border-radius:5px}
+.login label:not(.rem){display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--ink-dim)}
+.login input:not([type=checkbox]){font:inherit;font-size:15px;color:var(--ink);background:var(--panel-2);border:1.5px solid var(--rule);border-radius:8px;padding:7px 10px}
+.login .repo summary{cursor:pointer;font-size:12.5px;color:var(--ink-dim)}
+.login .repo{display:flex;flex-direction:column;gap:8px}
+.login .repo[open] label{margin-top:8px}
+.note{font-size:12.5px;color:var(--amber);margin:0}
+.gate{max-width:400px}
+#pubSlug:disabled{opacity:.7}
+.msg a{color:var(--ink)}
+body[data-mode=admin]:not(.authed) .method{display:none}

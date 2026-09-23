@@ -1,4 +1,5 @@
 "use strict";
+const MODE=document.body.dataset.mode==='player'?'player':'admin';
 const FG_MAP={FF:'FA',FA:'FA',SI:'SI',FT:'SI',FC:'FC',FS:'FS',SF:'FS',FO:'FO',SL:'SL',ST:'SL',SV:'CU',CU:'CU',CS:'CU',KC:'KC',CH:'CH',SC:'CH'};
 const FG_LABEL={FA:'Four-seam',SI:'Sinker',FC:'Cutter',FS:'Splitter',SL:'Slider',CU:'Curveball',CH:'Changeup',KC:'Knuckle curve',FO:'Forkball'};
 const FASTBALLS=new Set(['FA','SI','FC']);
@@ -383,7 +384,7 @@ function pitchCard(c,g,m){
 
 function render(){
   const m=M,app=$('#app');
-  if(!m){app.innerHTML='<div class="empty">Upload the Baseball Savant pitch log and the three FanGraphs game logs to build the dashboard.</div>';return}
+  if(!m){app.innerHTML=MODE==='admin'?'<div class="empty">Choose a player from the list, or click <b>New player</b> and upload files.</div>':'<div class="empty">Loading…</div>';return}
   $('#title').textContent=m.name||'Start Signal';
   $('#subtitle').textContent=`${m.throws==='L'?'Left-handed':'Right-handed'} pitcher · ${m.games.length} appearances (${m.yearRange})`;
   setLogo(m.team);
@@ -665,89 +666,384 @@ function bindTC(m){
   $('#cSwap').addEventListener('click',keep(()=>{[CMP.a,CMP.b]=[CMP.b,CMP.a]}));
 }
 
-/* ---------- load ---------- */
-/* Team logo: 1) a file named <TEAM>.png|.svg|.webp|.jpg next to index.html (or in assets/logos/) (shared with everyone who opens the site)
-               2) otherwise, an image uploaded in the browser (remembered in this browser only) */
-function showLogo(team,src){
-  const h=$('#hlogo');h.style.backgroundImage=src?`url("${String(src).replace(/"/g,'%22')}")`:'none';
-  const st=$('#logoSlotTxt'),sl=$('#logoSlot');
-  if(st){st.textContent=src?`${team||'Team'} logo loaded · choose a file to replace`:`Choose an image for ${team||'the team'} (PNG or SVG)`;sl.classList.toggle('ok',!!src)}
-}
-function probe(url){return new Promise(res=>{const i=new Image();i.onload=()=>res(url);i.onerror=()=>res(null);i.src=url})}
-let logoToken=0;
-async function setLogo(team){
-  const tok=++logoToken;
-  let src=null;try{src=localStorage.getItem('logo:'+team)}catch(e){}
-  if(src){showLogo(team,src);return}
-  showLogo(team,null);
-  const safe=String(team||'').replace(/[^A-Za-z0-9_-]/g,'');if(!safe)return;
-  for(const path of['','assets/logos/'])for(const ext of['png','svg','webp','jpg']){
-    const hit=await probe(`${path}${safe}.${ext}`);
-    if(tok!==logoToken)return;
-    if(hit){showLogo(team,hit);return}
-  }
-}
-$('#logoSlot').addEventListener('click',()=>$('#logoFile').click());
-$('#logoFile').addEventListener('change',e=>{
-  const f=e.target.files[0];e.target.value='';if(!f||!M)return;const team=M.team;
-  const rd=new FileReader();rd.onload=()=>{try{localStorage.setItem('logo:'+team,rd.result)}catch(err){console.warn('Logo too large to remember in this browser',err)}showLogo(team,rd.result)};rd.readAsDataURL(f);
-});
+/* =====================================================================
+   Loading, admin (GitHub-backed player folders) and player viewer
+   ===================================================================== */
+const on=(sel,ev,fn)=>{const e=$(sel);if(e)e.addEventListener(ev,fn);return e};
+let viewerLogo=null,pendingLogo=null,currentLogo=null;
+const memLogo={};
 
+/* ---------- logo ---------- */
+function showLogo(team,src){
+  currentLogo=src||null;
+  const h=$('#hlogo');if(h)h.style.backgroundImage=src?`url("${String(src).replace(/"/g,'%22')}")`:'none';
+  const st=$('#logoSlotTxt'),sl=$('#logoSlot');
+  if(st){st.textContent=src?`${team||'Team'} logo loaded · choose a file to replace`:`Choose an image (PNG or SVG)`;sl.classList.toggle('ok',!!src)}
+}
+async function setLogo(team){
+  if(MODE==='player'){showLogo(team,viewerLogo);return}
+  let src=memLogo[team]||null;
+  if(!src){try{src=localStorage.getItem('logo:'+team)}catch(e){}}
+  showLogo(team,src);
+}
+function readDataURL(f){return new Promise((res,rej)=>{const rd=new FileReader();rd.onload=()=>res(rd.result);rd.onerror=rej;rd.readAsDataURL(f)})}
+function saveLogo(team,d){memLogo[team]=d;try{localStorage.setItem('logo:'+team,d)}catch(e){}showLogo(team,d)}
+const isImage=f=>/^image\//.test(f.type)||/\.(png|svg|jpe?g|webp|gif)$/i.test(f.name);
+
+/* ---------- ingest ---------- */
+const slotName=k=>({savant:'Baseball Savant',stf:'Stuff+',loc:'Location+',pit:'Pitching+'})[k];
+function resetSources(){
+  for(const k in sources)sources[k]=null;pendingLogo=null;
+  document.querySelectorAll('.slot[data-slot]').forEach(s=>{s.classList.remove('ok');s.querySelector('span').textContent='Choose .csv'});
+  const ls=$('#logoSlot');if(ls){ls.classList.remove('ok');$('#logoSlotTxt').textContent='Choose an image (PNG or SVG)'}
+  const msg=$('#msg');if(msg){msg.textContent='';msg.className='msg'}
+}
+function ingest(text,fname,forced){
+  const p=parseCSV(text);const kind=classify(p.fields);const msg=$('#msg');
+  if(!kind){if(msg){msg.className='msg err';msg.textContent=`${fname} doesn't match any expected layout. Savant files need pitch_type and release_speed; FanGraphs logs need Stf+, Loc+ or Pit+ pitch columns.`}return false}
+  if(forced&&forced!==kind&&msg){msg.className='msg';msg.textContent=`${fname} looks like a ${slotName(kind)} file, so it was placed there.`}
+  sources[kind]={...p,name:fname};
+  const el=document.querySelector(`.slot[data-slot="${kind}"]`);if(el){el.classList.add('ok');el.querySelector('span').textContent=`${fname} · ${p.rows.length} rows`}
+  return true;
+}
+function resetViewState(){for(const k in sdCache)delete sdCache[k];CMP.a=null;CMP.b=null;hiddenPT.clear()}
 function tryBuild(){
   const msg=$('#msg');
   if(!sources.savant){msg.className='msg';msg.textContent='Add the Baseball Savant pitch log to continue.';return}
   if(!sources.stf&&!sources.loc&&!sources.pit){msg.className='msg';msg.textContent='Add at least one FanGraphs game log to continue.';return}
   try{
-    M=build();
-    selDate=M.games[M.games.length-1].date;
+    M=build();resetViewState();selDate=M.games[M.games.length-1].date;
+    if(pendingLogo){saveLogo(M.team,pendingLogo);pendingLogo=null}
     const missing=SLOTS.filter(s=>!sources[s[0]]).map(s=>({stf:'Stuff+',loc:'Location+',pit:'Pitching+'})[s[0]]);
     msg.className='msg';msg.textContent=`Loaded ${M.games.length} appearances.`+(missing.length?` Missing: ${missing.join(', ')} log.`:'');
-    render();
+    render();syncButtons();openPublish();
   }catch(err){console.error(err);msg.className='msg err';msg.textContent='Could not build the dashboard: '+err.message}
 }
-function ingest(text,fname,forced){
-  const p=parseCSV(text);const kind=classify(p.fields);
-  const msg=$('#msg');
-  if(!kind){msg.className='msg err';msg.textContent=`${fname} doesn't match any expected layout. Savant files need pitch_type and release_speed; FanGraphs logs need Stf+, Loc+ or Pit+ pitch columns.`;return false}
-  if(forced&&forced!==kind){msg.className='msg';msg.textContent=`${fname} looks like a ${slotName(kind)} file, so it was placed there.`}
-  sources[kind]={...p,name:fname};
-  const el=document.querySelector(`.slot[data-slot="${kind}"]`);el.classList.add('ok');el.querySelector('span').textContent=`${fname} · ${p.rows.length} rows`;
-  return true;
-}
-const slotName=k=>({savant:'Baseball Savant',stf:'Stuff+',loc:'Location+',pit:'Pitching+'})[k];
 async function handleFiles(files,forced){
   const list=[...files];
-  for(const f of list){const t=await f.text();ingest(t,f.name,forced)}
+  for(const f of list){
+    if(isImage(f)){pendingLogo=await readDataURL(f);showLogo('',pendingLogo);continue}
+    ingest(await f.text(),f.name,forced==='logo'?null:forced);
+  }
+  if(!list.some(f=>!isImage(f))&&M){saveLogo(M.team,pendingLogo);pendingLogo=null;return}
   tryBuild();
 }
-let forcedSlot=null;
-document.querySelectorAll('.slot').forEach(s=>{
-  s.addEventListener('click',()=>{forcedSlot=s.dataset.slot;$('#fileAny').click()});
-  s.addEventListener('dragover',e=>{e.preventDefault();s.classList.add('drag')});
-  s.addEventListener('dragleave',()=>s.classList.remove('drag'));
-  s.addEventListener('drop',e=>{e.preventDefault();s.classList.remove('drag');handleFiles(e.dataTransfer.files,s.dataset.slot)});
-});
-$('#fileAny').addEventListener('change',e=>{handleFiles(e.target.files,forcedSlot);forcedSlot=null;e.target.value=''});
-const drop=$('#drop');
-drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});
-drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
-drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');handleFiles(e.dataTransfer.files)});
-$('#toggleUpload').addEventListener('click',()=>{const u=$('#upload');u.hidden=!u.hidden;$('#toggleUpload').setAttribute('aria-expanded',String(!u.hidden))});
-/* Optional auto-load: if data/manifest.json exists (and the page is served over http/https),
-   the four CSVs it lists are loaded on open. Otherwise the upload panel opens. */
-async function autoLoad(){
+
+/* ---------- crypto ---------- */
+const te=new TextEncoder(),td=new TextDecoder();
+const b64=u8=>{let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s)};
+const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const rnd=n=>crypto.getRandomValues(new Uint8Array(n));
+const rand=n=>{const a='abcdefghjkmnpqrstuvwxyz23456789';return[...rnd(n)].map(x=>a[x%a.length]).join('')};
+async function pipe(bytes,stream){return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer())}
+async function passKey(pass,salt){
+  const km=await crypto.subtle.importKey('raw',te.encode(pass),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+}
+const rawKey=b=>crypto.subtle.importKey('raw',b,'AES-GCM',false,['encrypt','decrypt']);
+async function enc(key,bytes){const iv=rnd(12);return{iv:b64(iv),ct:b64(new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,bytes)))}}
+async function dec(key,o){return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(o.iv)},key,unb64(o.ct)))}
+/* A report = data encrypted with a random key K; K is stored twice: once locked with the
+   player's password, once locked with the admin passphrase. Player metadata (name, password)
+   is readable by the admin only. */
+async function makeEnvelope(payload,playerPass,adminKey,meta){
+  const K=rnd(32);let bytes=te.encode(JSON.stringify(payload));const gz=!!window.CompressionStream;
+  if(gz)bytes=await pipe(bytes,new CompressionStream('gzip'));
+  const salt=rnd(16);
+  return{v:2,updated:new Date().toISOString(),gz,data:await enc(await rawKey(K),bytes),
+    player:{salt:b64(salt),...await enc(await passKey(playerPass,salt),K)},
+    admin:await enc(adminKey,K),meta:await enc(adminKey,te.encode(JSON.stringify(meta)))};
+}
+async function openData(env,K){let b=await dec(await rawKey(K),env.data);if(env.gz)b=await pipe(b,new DecompressionStream('gzip'));return JSON.parse(td.decode(b))}
+async function openAsPlayer(env,pass){return openData(env,await dec(await passKey(pass,unb64(env.player.salt)),env.player))}
+async function openAsAdmin(env,adminKey){return openData(env,await dec(adminKey,env.admin))}
+async function readMeta(env,adminKey){return JSON.parse(td.decode(await dec(adminKey,env.meta)))}
+async function rewrapPlayer(env,adminKey,newPass,meta){
+  const K=await dec(adminKey,env.admin);const salt=rnd(16);
+  return{...env,player:{salt:b64(salt),...await enc(await passKey(newPass,salt),K)},meta:await enc(adminKey,te.encode(JSON.stringify(meta)))};
+}
+
+/* ---------- payload in / out ---------- */
+const SAVANT_KEEP=['pitch_type','pitch_name','game_date','game_year','release_speed','release_pos_x','release_pos_z','player_name','pitcher','p_throws','events','description','zone','pfx_x','pfx_z','release_spin_rate','release_extension','estimated_woba_using_speedangle','woba_value','woba_denom','launch_speed','bat_score','post_bat_score','delta_pitcher_run_exp','arm_angle','home_team','away_team','inning_topbot','at_bat_number','pitch_number'];
+function buildPayload(){
+  const sv=sources.savant,keep=SAVANT_KEEP.filter(k=>sv.fields.includes(k));
+  const un=s=>s?Papa.unparse(s.rows,{columns:s.fields}):null;
+  return{name:M.name,team:M.team,logo:currentLogo&&currentLogo.startsWith('data:')?currentLogo:null,
+    savant:Papa.unparse({fields:keep,data:sv.rows.map(r=>keep.map(k=>r[k]??''))}),stf:un(sources.stf),loc:un(sources.loc),pit:un(sources.pit)};
+}
+function loadPayload(p){
+  resetSources();
+  const add=(slot,text)=>{if(text){const r=parseCSV(text);sources[slot]={...r,name:slot}}};
+  add('savant',p.savant);add('stf',p.stf);add('loc',p.loc);add('pit',p.pit);
+  if(MODE==='player')viewerLogo=p.logo||null;else if(p.logo)memLogo[p.team]=p.logo;
+  M=build();resetViewState();selDate=M.games[M.games.length-1].date;render();
+}
+
+/* ---------- player page ---------- */
+async function bootPlayer(){
+  const app=$('#app'),meth=document.querySelector('.method');
+  let env;
+  try{const r=await fetch('report.json',{cache:'no-store'});if(!r.ok)throw 0;env=await r.json()}
+  catch(e){app.innerHTML='<div class="empty">This report isn\u2019t available.</div>';return}
+  const key='pass:'+location.pathname;
+  const open=async pass=>{
+    const p=await openAsPlayer(env,pass);loadPayload(p);
+    if(meth)meth.hidden=false;
+    const u=$('#updated');if(u){u.hidden=false;u.textContent='Report updated '+new Date(env.updated).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}
+  };
+  let saved=null;try{saved=localStorage.getItem(key)}catch(e){}
+  if(saved){try{await open(saved);return}catch(e){try{localStorage.removeItem(key)}catch(_){}}}
+  app.innerHTML=`<form class="gate card" id="gate">
+    <h2>Enter your password</h2>
+    <input id="gPass" type="password" autocomplete="current-password" aria-label="Password" required>
+    <label class="rem"><input type="checkbox" id="gRem" checked> Remember on this device</label>
+    <button class="btn primary" type="submit">Open report</button>
+    <p class="msg" id="gMsg" role="status"></p></form>`;
+  $('#gPass').focus();
+  $('#gate').addEventListener('submit',async ev=>{
+    ev.preventDefault();const pass=$('#gPass').value;const m=$('#gMsg');m.className='msg';m.textContent='Opening\u2026';
+    try{await open(pass);if($('#gRem')?.checked!==false){try{localStorage.setItem(key,pass)}catch(e){}}}
+    catch(e){m.className='msg err';m.textContent='That password didn\u2019t open this report.'}
+  });
+}
+
+/* ---------- GitHub ---------- */
+const GH={owner:'',repo:'',branch:'main',token:''};
+function detectRepo(){
+  const h=location.hostname;if(!h.endsWith('.github.io'))return{};
+  const owner=h.split('.')[0],seg=location.pathname.split('/').filter(Boolean)[0];
+  return{owner,repo:seg&&!seg.includes('.')?seg:`${owner}.github.io`};
+}
+function siteBase(){const user=GH.repo.toLowerCase()===`${GH.owner}.github.io`.toLowerCase();return`https://${GH.owner}.github.io/${user?'':GH.repo+'/'}`}
+const playerURL=slug=>`${siteBase()}players/${slug}/`;
+async function gh(path,opts={}){
+  const r=await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}${path}`,{cache:'no-store',...opts,
+    headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${GH.token}`,'X-GitHub-Api-Version':'2022-11-28',...(opts.headers||{})}});
+  if(!r.ok){let m='';try{m=(await r.json()).message}catch(e){}const e=new Error(`GitHub ${r.status}${m?': '+m:''}`);e.status=r.status;throw e}
+  return r;
+}
+const q=()=>`?ref=${encodeURIComponent(GH.branch)}`;
+async function ghFile(path){try{return await(await gh(`/contents/${path}${q()}`)).json()}catch(e){if(e.status===404)return null;throw e}}
+async function ghRaw(path){return(await gh(`/contents/${path}${q()}`,{headers:{Accept:'application/vnd.github.raw'}})).text()}
+async function ghList(path){try{const j=await(await gh(`/contents/${path}${q()}`)).json();return Array.isArray(j)?j:[]}catch(e){if(e.status===404)return[];throw e}}
+async function ghPut(path,text,message){
+  const cur=await ghFile(path);const body={message,content:b64(te.encode(text)),branch:GH.branch};if(cur?.sha)body.sha=cur.sha;
+  await gh(`/contents/${path}`,{method:'PUT',body:JSON.stringify(body)});
+}
+async function ghDel(path,sha,message){await gh(`/contents/${path}`,{method:'DELETE',body:JSON.stringify({message,sha,branch:GH.branch})})}
+
+/* ---------- admin session ---------- */
+const ADMIN={key:null,players:[],cur:null};
+const CHECK='start-signal-admin-v1';
+function loginScreen(err,needConfirm,pre){
+  document.body.classList.remove('authed');
+  $('#title').textContent='Start Signal';$('#subtitle').textContent='Admin sign-in';showLogo('',null);
+  ['#playersPanel','#upload','#publishPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});
+  const d=detectRepo(),s=pre||savedCreds()||{};
+  const v=k=>esc(s[k]||d[k]||(k==='branch'?'main':''));
+  $('#app').innerHTML=`<form class="gate card login" id="login">
+    <h2>Admin sign-in</h2>
+    <label>GitHub token<input id="lToken" type="password" autocomplete="off" value="${esc(s.token||'')}" required></label>
+    <label>Admin passphrase<input id="lPass" type="password" autocomplete="current-password" value="${esc(s.pass||'')}" required></label>
+    ${needConfirm?`<label>Confirm new admin passphrase<input id="lPass2" type="password" autocomplete="new-password" required></label><p class="note">First sign-in: this passphrase unlocks every player report. It can't be recovered, so store it safely.</p>`:''}
+    <details class="repo" ${d.owner?'':'open'}><summary>Repository</summary>
+      <label>Owner<input id="lOwner" value="${v('owner')}" required></label>
+      <label>Repository<input id="lRepo" value="${v('repo')}" required></label>
+      <label>Branch<input id="lBranch" value="${v('branch')}" required></label></details>
+    <label class="rem"><input type="checkbox" id="lRem" ${s.token?'checked':''}> Remember on this device</label>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p class="msg ${err?'err':''}" id="lMsg" role="status">${esc(err||'')}</p></form>`;
+  $('#login').addEventListener('submit',ev=>{ev.preventDefault();signIn(needConfirm)});
+  (needConfirm?$('#lPass2'):$('#lToken').value?$('#lPass'):$('#lToken')).focus();
+}
+function savedCreds(){try{return JSON.parse(localStorage.getItem('ss-admin')||sessionStorage.getItem('ss-admin')||'null')}catch(e){return null}}
+async function signIn(confirming){
+  const f=id=>$(id)?.value.trim()||'';
+  Object.assign(GH,{owner:f('#lOwner'),repo:f('#lRepo'),branch:f('#lBranch')||'main',token:f('#lToken')});
+  const pass=$('#lPass').value,msg=$('#lMsg');msg.className='msg';msg.textContent='Checking\u2026';
   try{
-    // manifest.json may sit next to index.html or inside a data/ folder; CSV paths are relative to it
-    let base='',r=await fetch('manifest.json',{cache:'no-store'});
-    if(!r.ok){base='data/';r=await fetch('data/manifest.json',{cache:'no-store'})}
-    if(!r.ok)throw new Error('no manifest');
-    const man=await r.json();
-    const files=[man.savant,man.stuff,man.location,man.pitching].filter(Boolean);
-    if(!files.length)throw new Error('empty manifest');
-    for(const f of files){const res=await fetch(base+f,{cache:'no-store'});if(!res.ok)throw new Error('missing '+f);ingest(await res.text(),f)}
-    tryBuild();
-  }catch(err){
-    const u=$('#upload');u.hidden=false;$('#toggleUpload').setAttribute('aria-expanded','true');render();
+    const repo=await(await gh('')).json();
+    if(!repo.permissions?.push)throw new Error(`This token can read ${GH.owner}/${GH.repo} but can't write to it. Give it Contents: Read and write.`);
+    const adm=await ghFile('admin.json');
+    if(!adm){
+      if(!confirming){const rem=$('#lRem').checked;loginScreen('',true,{...GH,pass});$('#lRem').checked=rem;return}
+      if(pass.length<10)throw new Error('Use at least 10 characters for the admin passphrase.');
+      if(pass!==$('#lPass2').value)throw new Error('The passphrases don\u2019t match.');
+      const salt=rnd(16),key=await passKey(pass,salt);
+      await ghPut('admin.json',JSON.stringify({v:1,salt:b64(salt),check:await enc(key,te.encode(CHECK))}),'Set up Start Signal admin');
+      if(!(await ghFile('.nojekyll')))await ghPut('.nojekyll','\n','Serve files as-is');
+      ADMIN.key=key;
+    }else{
+      const a=JSON.parse(await ghRaw('admin.json'));const key=await passKey(pass,unb64(a.salt));
+      try{if(td.decode(await dec(key,a.check))!==CHECK)throw 0}catch(e){throw new Error('Wrong admin passphrase.')}
+      ADMIN.key=key;
+    }
+    const creds=JSON.stringify({owner:GH.owner,repo:GH.repo,branch:GH.branch,token:GH.token,pass});
+    try{localStorage.removeItem('ss-admin');sessionStorage.removeItem('ss-admin');($('#lRem').checked?localStorage:sessionStorage).setItem('ss-admin',creds)}catch(e){}
+    enterAdmin();
+  }catch(e){console.error(e);msg.className='msg err';msg.textContent=e.status===401?'GitHub rejected that token.':e.status===404?`Can't find ${GH.owner}/${GH.repo} with this token.`:e.message}
+}
+function signOut(){
+  try{localStorage.removeItem('ss-admin');sessionStorage.removeItem('ss-admin')}catch(e){}
+  ADMIN.key=null;ADMIN.players=[];ADMIN.cur=null;M=null;resetSources();GH.token='';loginScreen();
+}
+function enterAdmin(){
+  document.body.classList.add('authed');$('#who').textContent=`${GH.owner}/${GH.repo}`;
+  M=null;render();$('#title').textContent='Start Signal';$('#subtitle').textContent='Admin';showLogo('',null);
+  syncButtons();togglePanel('#playersPanel',true);refreshPlayers();
+}
+function syncButtons(){const p=$('#publishBtn');if(p)p.disabled=!M}
+function togglePanel(id,force){
+  for(const[p,b]of[['#playersPanel','#playersBtn'],['#upload','#toggleUpload'],['#publishPanel','#publishBtn']]){
+    const el=$(p);if(!el)continue;const open=p===id?(force??el.hidden):false;el.hidden=!open;$(b)?.setAttribute('aria-expanded',String(open));
   }
 }
-autoLoad();
+
+/* ---------- players list ---------- */
+async function refreshPlayers(){
+  const box=$('#playersList');box.innerHTML='<p class="meta">Loading players\u2026</p>';
+  try{
+    const dirs=(await ghList('players')).filter(x=>x.type==='dir');
+    ADMIN.players=await Promise.all(dirs.map(async d=>{
+      try{const env=JSON.parse(await ghRaw(`players/${d.name}/report.json`));return{slug:d.name,env,meta:await readMeta(env,ADMIN.key)}}
+      catch(e){return{slug:d.name,error:e.status===404?'No report file':'Can\u2019t unlock with this passphrase'}}
+    }));
+    ADMIN.players.sort((a,b)=>(a.meta?.name||a.slug).localeCompare(b.meta?.name||b.slug));
+    renderPlayers();
+  }catch(e){console.error(e);box.innerHTML=`<p class="msg err">${esc(e.message)}</p>`}
+}
+const fdt=s=>s?new Date(s).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}):'—';
+function renderPlayers(){
+  const box=$('#playersList');
+  if(!ADMIN.players.length){box.innerHTML='<p class="meta">No player folders yet. Click <b>New player</b> to upload the first one.</p>';return}
+  box.innerHTML=`<div class="tblwrap"><table class="ptab"><thead><tr><th>Player</th><th>Folder</th><th>Updated</th><th>Password</th><th></th></tr></thead><tbody>${ADMIN.players.map((p,i)=>p.error?
+    `<tr><td colspan="4"><b>${esc(p.slug)}</b> <span class="meta">${esc(p.error)}</span></td><td><div class="acts"><button class="btn sm" data-del="${i}">Delete</button></div></td></tr>`:
+    `<tr class="${ADMIN.cur?.slug===p.slug?'cur':''}"><td><b>${esc(p.meta.name)}</b><small>${esc(p.meta.team||'')}</small></td>
+      <td><a href="${esc(playerURL(p.slug))}" target="_blank" rel="noopener">${esc(p.slug)}</a> <button class="btn sm" data-copy="${esc(playerURL(p.slug))}">Copy link</button></td>
+      <td>${fdt(p.env.updated)}</td>
+      <td><code class="pw" data-pw="${i}">••••••••</code> <button class="btn sm" data-show="${i}">Show</button> <button class="btn sm" data-copy="${esc(p.meta.password)}">Copy</button></td>
+      <td><div class="acts"><button class="btn sm" data-open="${i}">Open</button><button class="btn sm" data-upd="${i}">Upload new files</button><button class="btn sm" data-pass="${i}">Change password</button><button class="btn sm danger" data-del="${i}">Delete</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  box.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>copy(b.dataset.copy,b)));
+  box.querySelectorAll('[data-show]').forEach(b=>b.addEventListener('click',()=>{const c=box.querySelector(`[data-pw="${b.dataset.show}"]`);const shown=b.textContent==='Hide';c.textContent=shown?'••••••••':ADMIN.players[+b.dataset.show].meta.password;b.textContent=shown?'Show':'Hide'}));
+  box.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>openPlayer(+b.dataset.open)));
+  box.querySelectorAll('[data-upd]').forEach(b=>b.addEventListener('click',()=>{ADMIN.cur=ADMIN.players[+b.dataset.upd];resetSources();togglePanel('#upload',true);renderPlayers();setUploadTitle()}));
+  box.querySelectorAll('[data-pass]').forEach(b=>b.addEventListener('click',()=>changePassword(+b.dataset.pass)));
+  box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>deletePlayer(+b.dataset.del)));
+}
+function copy(text,btn){navigator.clipboard?.writeText(text).then(()=>{const t=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=t,1200)}).catch(()=>prompt('Copy:',text))}
+function setUploadTitle(){const h=$('#uploadTitle');if(h)h.textContent=ADMIN.cur?`Upload new files for ${ADMIN.cur.meta.name}`:'Upload files for a new player'}
+async function openPlayer(i){
+  const p=ADMIN.players[i];ADMIN.cur=p;const box=$('#playersList');
+  try{loadPayload(await openAsAdmin(p.env,ADMIN.key));syncButtons();togglePanel(null);renderPlayers();window.scrollTo({top:0})}
+  catch(e){console.error(e);alert('Could not open this report: '+e.message)}
+}
+async function changePassword(i){
+  const p=ADMIN.players[i];const np=prompt(`New password for ${p.meta.name}:`,`${rand(4)}-${rand(4)}`);
+  if(!np)return;if(np.length<6){alert('Use at least 6 characters.');return}
+  try{
+    const meta={...p.meta,password:np};const env=await rewrapPlayer(p.env,ADMIN.key,np,meta);
+    await ghPut(`players/${p.slug}/report.json`,JSON.stringify(env),`Change password: ${p.slug}`);
+    Object.assign(p,{env,meta});renderPlayers();
+  }catch(e){console.error(e);alert('Could not change the password: '+e.message)}
+}
+async function deletePlayer(i){
+  const p=ADMIN.players[i];if(!confirm(`Delete ${p.meta?.name||p.slug}'s folder? The link will stop working.`))return;
+  try{for(const f of await ghList(`players/${p.slug}`))await ghDel(f.path,f.sha,`Delete ${p.slug}`);
+    if(ADMIN.cur?.slug===p.slug)ADMIN.cur=null;await refreshPlayers()}
+  catch(e){console.error(e);alert('Could not delete: '+e.message)}
+}
+
+/* ---------- publish ---------- */
+function openPublish(){
+  if(!M)return;const c=ADMIN.cur;
+  $('#pubWho').textContent=M.name;
+  $('#pubTarget').innerHTML=c?`Updating <b>${esc(c.meta.name)}</b>'s folder <code>players/${esc(c.slug)}/</code>`:'New player folder';
+  const fs=$('#pubSlug');fs.value=c?c.slug:`p-${rand(8)}`;fs.disabled=!!c;
+  $('#pubPass').value=c?c.meta.password:`${rand(4)}-${rand(4)}`;
+  $('#pubMsg').className='msg';$('#pubMsg').innerHTML='';
+  togglePanel('#publishPanel',true);
+}
+async function publish(){
+  const msg=$('#pubMsg'),c=ADMIN.cur;
+  const slug=($('#pubSlug').value||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'');
+  const pass=$('#pubPass').value;
+  if(!slug){msg.className='msg err';msg.textContent='Enter a folder name.';return}
+  if(pass.length<6){msg.className='msg err';msg.textContent='Use a password of at least 6 characters.';return}
+  if(!c&&ADMIN.players.some(p=>p.slug===slug)){msg.className='msg err';msg.textContent='That folder already exists. Use "Upload new files" on that player instead.';return}
+  if(c&&c.meta.name!==M.name&&!confirm(`These files are for ${M.name}, but the folder belongs to ${c.meta.name}. Publish anyway?`))return;
+  msg.className='msg';msg.textContent='Encrypting and publishing\u2026';$('#pubGo').disabled=true;
+  try{
+    const meta={name:M.name,team:M.team,password:pass,slug,created:c?.meta.created||new Date().toISOString()};
+    const env=await makeEnvelope(buildPayload(),pass,ADMIN.key,meta);
+    await ghPut(`players/${slug}/report.json`,JSON.stringify(env),`${c?'Update':'Create'} report: ${slug}`);
+    if(!(await ghFile(`players/${slug}/index.html`)))await ghPut(`players/${slug}/index.html`,playerPage(),`Player page: ${slug}`);
+    const url=playerURL(slug);
+    msg.innerHTML=`Published. Link: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a> <button class="btn sm" id="cpL">Copy link</button> · Password: <code>${esc(pass)}</code> <button class="btn sm" id="cpP">Copy</button><br><span class="meta">GitHub Pages usually shows the update within a few minutes.</span>`;
+    on('#cpL','click',e=>copy(url,e.target));on('#cpP','click',e=>copy(pass,e.target));
+    await refreshPlayers();ADMIN.cur=ADMIN.players.find(p=>p.slug===slug)||null;renderPlayers();
+  }catch(e){console.error(e);msg.className='msg err';msg.textContent='Could not publish: '+e.message}
+  finally{$('#pubGo').disabled=false}
+}
+function playerPage(){
+  const method=(document.querySelector('.method')?.outerHTML||'').replace('<details class="method"','<details class="method" hidden');
+  const fonts=[...document.querySelectorAll('link[href*="fonts.g"]')].map(l=>l.outerHTML).join('\n');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Player report</title>
+${fonts}
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../papaparse.min.js"><\/script>
+</head>
+<body data-mode="player">
+<div class="wrap">
+  <header class="top">
+    <div class="hlogo" id="hlogo" aria-hidden="true"></div>
+    <div class="brand"><h1 id="title">Player report</h1><p id="subtitle"></p></div>
+  </header>
+  <main id="app"><div class="empty">Loading\u2026</div></main>
+  ${method}
+  <p class="updated" id="updated" hidden></p>
+</div>
+<script src="../../app.js"><\/script>
+</body>
+</html>
+`;
+}
+
+/* ---------- admin wiring ---------- */
+function wireAdmin(){
+  let forced=null;
+  document.querySelectorAll('.slot[data-slot]').forEach(s=>{
+    s.addEventListener('click',()=>{forced=s.dataset.slot;$('#fileAny').click()});
+    s.addEventListener('dragover',e=>{e.preventDefault();s.classList.add('drag')});
+    s.addEventListener('dragleave',()=>s.classList.remove('drag'));
+    s.addEventListener('drop',e=>{e.preventDefault();s.classList.remove('drag');handleFiles(e.dataTransfer.files,s.dataset.slot)});
+  });
+  on('#fileAny','change',e=>{handleFiles(e.target.files,forced);forced=null;e.target.value=''});
+  on('#pickAll','click',()=>{forced=null;$('#fileAny').click()});
+  on('#logoSlot','click',()=>$('#logoFile').click());
+  on('#logoFile','change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const d=await readDataURL(f);if(M)saveLogo(M.team,d);else{pendingLogo=d;showLogo('',d)}});
+  const drop=$('#drop');
+  if(drop){drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
+    drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');handleFiles(e.dataTransfer.files)})}
+  on('#playersBtn','click',()=>togglePanel('#playersPanel'));
+  on('#toggleUpload','click',()=>{if($('#upload').hidden&&!M)ADMIN.cur=null;setUploadTitle();togglePanel('#upload')});
+  on('#publishBtn','click',()=>{if($('#publishPanel').hidden)openPublish();else togglePanel(null)});
+  on('#newPlayer','click',()=>{ADMIN.cur=null;M=null;resetSources();render();syncButtons();showLogo('',null);$('#title').textContent='Start Signal';$('#subtitle').textContent='Admin';setUploadTitle();togglePanel('#upload',true);renderPlayers()});
+  on('#refreshPlayers','click',refreshPlayers);
+  on('#signOut','click',signOut);
+  on('#pubGo','click',publish);
+  on('#pubGen','click',()=>{$('#pubPass').value=`${rand(4)}-${rand(4)}`});
+}
+
+/* ---------- boot ---------- */
+if(MODE==='player')bootPlayer();
+else{
+  wireAdmin();
+  const s=savedCreds();
+  if(s&&s.token&&s.pass){loginScreen();signIn(false)}else loginScreen();
+}
