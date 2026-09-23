@@ -812,6 +812,8 @@ async function bootPlayer(){
 }
 
 /* ---------- GitHub ---------- */
+/* Optional: fill in only if the tool is hosted somewhere other than <owner>.github.io/<repo>/ */
+const CONFIG={owner:'',repo:'',branch:''};
 const GH={owner:'',repo:'',branch:'main',token:''};
 function detectRepo(){
   const h=location.hostname;if(!h.endsWith('.github.io'))return{};
@@ -822,7 +824,7 @@ function siteBase(){const user=GH.repo.toLowerCase()===`${GH.owner}.github.io`.t
 const playerURL=slug=>`${siteBase()}players/${slug}/`;
 async function gh(path,opts={}){
   const r=await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}${path}`,{cache:'no-store',...opts,
-    headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${GH.token}`,'X-GitHub-Api-Version':'2022-11-28',...(opts.headers||{})}});
+    headers:{Accept:'application/vnd.github+json',...(GH.token?{Authorization:`Bearer ${GH.token}`}:{}),'X-GitHub-Api-Version':'2022-11-28',...(opts.headers||{})}});
   if(!r.ok){let m='';try{m=(await r.json()).message}catch(e){}const e=new Error(`GitHub ${r.status}${m?': '+m:''}`);e.status=r.status;throw e}
   return r;
 }
@@ -837,75 +839,138 @@ async function ghPut(path,text,message){
 async function ghDel(path,sha,message){await gh(`/contents/${path}`,{method:'DELETE',body:JSON.stringify({message,sha,branch:GH.branch})})}
 
 /* ---------- admin session ---------- */
-const ADMIN={key:null,players:[],cur:null,staged:false};
+const ADMIN={key:null,mk:null,user:'',pass:null,file:null,mode:'signin',players:[],cur:null,staged:false};
 const CHECK='start-signal-admin-v1';
 function setView(v){
   document.body.dataset.view=v;
   const pp=$('#playersPanel'),app=$('#app');
   if(v==='report'){
-    ['#playersPanel','#upload','#publishPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});
+    ['#playersPanel','#upload','#publishPanel','#accountPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});
     app.hidden=false;render();window.scrollTo({top:0});
   }else if(v==='players'){
     app.hidden=true;pp.hidden=false;
     $('#title').textContent='Start Signal';$('#subtitle').textContent='Admin · Players';
   }else{ // login
-    ['#playersPanel','#upload','#publishPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});app.hidden=false;
+    ['#playersPanel','#upload','#publishPanel','#accountPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});app.hidden=false;
   }
 }
-function loginScreen(err,needConfirm,pre){
+function loginForm(mode,err){
   document.body.classList.remove('authed');setView('login');
   $('#title').textContent='Start Signal';$('#subtitle').textContent='Admin sign-in';showLogo('',null);
-  const d=detectRepo(),s=pre||savedCreds()||{};
-  const v=k=>esc(s[k]||d[k]||(k==='branch'?'main':''));
-  $('#app').innerHTML=`<form class="gate card login" id="login">
-    <h2>Admin sign-in</h2>
-    <label>GitHub token<input id="lToken" type="password" autocomplete="off" value="${esc(s.token||'')}" required></label>
-    <label>Admin passphrase<input id="lPass" type="password" autocomplete="current-password" value="${esc(s.pass||'')}" required></label>
-    ${needConfirm?`<label>Confirm new admin passphrase<input id="lPass2" type="password" autocomplete="new-password" required></label><p class="note">First sign-in: this passphrase unlocks every player report. It can't be recovered, so store it safely.</p>`:''}
-    <details class="repo" ${d.owner?'':'open'}><summary>Repository</summary>
-      <label>Owner<input id="lOwner" value="${v('owner')}" required></label>
-      <label>Repository<input id="lRepo" value="${v('repo')}" required></label>
-      <label>Branch<input id="lBranch" value="${v('branch')}" required></label></details>
-    <label class="rem"><input type="checkbox" id="lRem" ${s.token?'checked':''}> Remember on this device</label>
-    <button class="btn primary" type="submit">Sign in</button>
-    <p class="msg ${err?'err':''}" id="lMsg" role="status">${esc(err||'')}</p></form>`;
-  $('#login').addEventListener('submit',ev=>{ev.preventDefault();signIn(needConfirm)});
-  (needConfirm?$('#lPass2'):$('#lToken').value?$('#lPass'):$('#lToken')).focus();
+  const s=savedCreds()||{};
+  const f=(id,label,type,ac,val='')=>`<label>${label}<input id="${id}" type="${type}" autocomplete="${ac}" value="${esc(val)}" required></label>`;
+  let body='';
+  if(mode==='signin')body=`<h2>Admin sign-in</h2>${f('lUser','Username','text','username',s.u||'')}${f('lPass','Password','password','current-password',s.p||'')}
+    <label class="rem"><input type="checkbox" id="lRem" ${s.u?'checked':''}> Remember on this device</label>
+    <button class="btn primary" type="submit">Sign in</button>`;
+  else if(mode==='setup')body=`<h2>Set up admin access</h2><p class="note">One-time setup. The GitHub token is stored encrypted and never asked for again unless it expires.</p>
+    ${f('lToken','GitHub token','password','off')}${f('lUser','Choose a username','text','username')}${f('lPass','Choose a password (10+ characters)','password','new-password')}${f('lPass2','Confirm password','password','new-password')}
+    <label class="rem"><input type="checkbox" id="lRem"> Remember on this device</label><button class="btn primary" type="submit">Create admin access</button>`;
+  else if(mode==='upgrade')body=`<h2>Switch to username sign-in</h2><p class="note">One-time step: enter your current GitHub token and admin passphrase once, then choose the username and password you'll use from now on. Existing player reports keep working.</p>
+    ${f('lToken','GitHub token','password','off')}${f('lOld','Current admin passphrase','password','current-password')}${f('lUser','New username','text','username')}${f('lPass','New password (10+ characters)','password','new-password')}${f('lPass2','Confirm new password','password','new-password')}
+    <label class="rem"><input type="checkbox" id="lRem"> Remember on this device</label><button class="btn primary" type="submit">Save and sign in</button>`;
+  else if(mode==='token')body=`<h2>Replace GitHub token</h2><p class="note">The saved GitHub token no longer works (it may have expired). Paste a new one; your username and password stay the same.</p>
+    ${f('lToken','New GitHub token','password','off')}<button class="btn primary" type="submit">Save token</button>`;
+  $('#app').innerHTML=`<form class="gate card login" id="login">${body}<p class="msg ${err?'err':''}" id="lMsg" role="status">${esc(err||'')}</p></form>`;
+  $('#login').addEventListener('submit',ev=>{ev.preventDefault();submitLogin(mode)});
+  const first=$('#login input:not([type=checkbox])');(s.u&&mode==='signin'?$('#lPass'):first)?.focus();
 }
+function loginScreen(err){loginForm(ADMIN.mode||'signin',err)}
 function savedCreds(){try{return JSON.parse(localStorage.getItem('ss-admin')||sessionStorage.getItem('ss-admin')||'null')}catch(e){return null}}
-async function signIn(confirming){
-  const f=id=>$(id)?.value.trim()||'';
-  Object.assign(GH,{owner:f('#lOwner'),repo:f('#lRepo'),branch:f('#lBranch')||'main',token:f('#lToken')});
-  const pass=$('#lPass').value,msg=$('#lMsg');msg.className='msg';msg.textContent='Checking\u2026';
+function remember(u,p,persist){try{localStorage.removeItem('ss-admin');sessionStorage.removeItem('ss-admin');(persist?localStorage:sessionStorage).setItem('ss-admin',JSON.stringify({u,p}))}catch(e){}}
+const normUser=u=>String(u||'').trim().toLowerCase();
+const credKey=(u,p,salt)=>passKey(normUser(u)+'\u0000'+p,salt);
+async function v1Master(pass,salt){
+  const km=await crypto.subtle.importKey('raw',te.encode(pass),'PBKDF2',false,['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},km,256));
+}
+async function writeAdmin(u,p,token,mk,message){
+  const salt=rnd(16),box=await enc(await credKey(u,p,salt),te.encode(JSON.stringify({u:normUser(u),token,mk:b64(mk)})));
+  await ghPut('admin.json',JSON.stringify({v:2,salt:b64(salt),box}),message);
+  ADMIN.file={v:2,salt:b64(salt),box};
+}
+async function checkToken(token){
+  const prev=GH.token;GH.token=token;
+  try{const r=await(await gh('')).json();if(!r.permissions?.push)throw new Error('That GitHub token can\u2019t save files here. It needs Contents: Read and write on this repository.')}
+  catch(e){GH.token=prev;if(e.status===401)throw new Error('GitHub rejected that token.');if(e.status===404)throw new Error('That GitHub token doesn\u2019t have access to this repository.');throw e}
+}
+async function fetchAdminFile(){
   try{
-    const repo=await(await gh('')).json();
-    if(!repo.permissions?.push)throw new Error(`This token can read ${GH.owner}/${GH.repo} but can't write to it. Give it Contents: Read and write.`);
-    const adm=await ghFile('admin.json');
-    if(!adm){
-      if(!confirming){const rem=$('#lRem').checked;loginScreen('',true,{...GH,pass});$('#lRem').checked=rem;return}
-      if(pass.length<10)throw new Error('Use at least 10 characters for the admin passphrase.');
-      if(pass!==$('#lPass2').value)throw new Error('The passphrases don\u2019t match.');
-      const salt=rnd(16),key=await passKey(pass,salt);
-      await ghPut('admin.json',JSON.stringify({v:1,salt:b64(salt),check:await enc(key,te.encode(CHECK))}),'Set up Start Signal admin');
-      if(!(await ghFile('.nojekyll')))await ghPut('.nojekyll','\n','Serve files as-is');
-      ADMIN.key=key;
-    }else{
-      const a=JSON.parse(await ghRaw('admin.json'));const key=await passKey(pass,unb64(a.salt));
-      try{if(td.decode(await dec(key,a.check))!==CHECK)throw 0}catch(e){throw new Error('Wrong admin passphrase.')}
-      ADMIN.key=key;
+    const r=await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/admin.json?ref=${encodeURIComponent(GH.branch)}`,{cache:'no-store',headers:{Accept:'application/vnd.github.raw'}});
+    if(r.status===404)return null;if(r.ok)return JSON.parse(await r.text());
+  }catch(e){}
+  const r=await fetch('admin.json',{cache:'no-store'});
+  if(r.status===404)return null;if(r.ok)return r.json();
+  throw new Error('Can\u2019t reach the sign-in service right now. Try again in a minute.');
+}
+async function initAdmin(){
+  const d=detectRepo();
+  GH.owner=CONFIG.owner||d.owner||'';GH.repo=CONFIG.repo||d.repo||'';GH.branch=CONFIG.branch||'';
+  if(!GH.owner||!GH.repo){$('#app').innerHTML='<div class="empty">Open the tool from its published web address to sign in.</div>';return}
+  if(!GH.branch){try{const r=await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}`,{cache:'no-store'});if(r.ok)GH.branch=(await r.json()).default_branch}catch(e){}GH.branch=GH.branch||'main'}
+  try{ADMIN.file=await fetchAdminFile()}catch(e){loginForm('signin',e.message);return}
+  ADMIN.mode=!ADMIN.file?'setup':ADMIN.file.v===2?'signin':'upgrade';
+  const s=savedCreds();
+  if(ADMIN.mode==='signin'&&s?.u&&s?.p){loginForm('signin');submitLogin('signin',true)}else loginForm(ADMIN.mode);
+}
+async function submitLogin(mode,auto){
+  const val=id=>$(id)?.value??'';const msg=$('#lMsg');msg.className='msg';msg.textContent='Checking\u2026';
+  const persist=$('#lRem')?.checked;
+  try{
+    if(mode==='signin'){
+      const u=val('#lUser'),p=val('#lPass'),a=ADMIN.file;let box;
+      try{box=JSON.parse(td.decode(await dec(await credKey(u,p,unb64(a.salt)),a.box)))}catch(e){throw new Error('Wrong username or password.')}
+      Object.assign(ADMIN,{user:box.u,pass:p,mk:unb64(box.mk)});ADMIN.key=await rawKey(ADMIN.mk);
+      remember(box.u,p,auto?!!localStorage.getItem('ss-admin'):persist);
+      try{await checkToken(box.token)}catch(e){ADMIN.mode='token';loginForm('token');return}
+      return enterAdmin();
     }
-    const creds=JSON.stringify({owner:GH.owner,repo:GH.repo,branch:GH.branch,token:GH.token,pass});
-    try{localStorage.removeItem('ss-admin');sessionStorage.removeItem('ss-admin');($('#lRem').checked?localStorage:sessionStorage).setItem('ss-admin',creds)}catch(e){}
+    if(mode==='token'){await checkToken(val('#lToken').trim());await writeAdmin(ADMIN.user,ADMIN.pass,GH.token,ADMIN.mk,'Replace admin GitHub token');ADMIN.mode='signin';return enterAdmin()}
+    const u=normUser(val('#lUser')),p=val('#lPass');
+    if(!/^[a-z0-9._@-]{3,}$/.test(u))throw new Error('Use a username of at least 3 letters, numbers or . _ - @');
+    if(p.length<10)throw new Error('Use a password of at least 10 characters.');
+    if(p!==val('#lPass2'))throw new Error('The passwords don\u2019t match.');
+    await checkToken(val('#lToken').trim());
+    let mk;
+    if(mode==='setup'){mk=rnd(32)}
+    else{ // upgrade from passphrase version: same master key, so existing reports still open
+      const a=ADMIN.file,old=val('#lOld'),salt=unb64(a.salt);
+      try{if(td.decode(await dec(await passKey(old,salt),a.check))!==CHECK)throw 0}catch(e){throw new Error('That isn\u2019t the current admin passphrase.')}
+      mk=await v1Master(old,salt);
+    }
+    await writeAdmin(u,p,GH.token,mk,mode==='setup'?'Set up admin access':'Switch admin to username sign-in');
+    if(mode==='setup'&&!(await ghFile('.nojekyll')))await ghPut('.nojekyll','\n','Serve files as-is');
+    Object.assign(ADMIN,{user:u,pass:p,mk,mode:'signin'});ADMIN.key=await rawKey(mk);remember(u,p,persist);
     enterAdmin();
-  }catch(e){console.error(e);msg.className='msg err';msg.textContent=e.status===401?'GitHub rejected that token.':e.status===404?`Can't find ${GH.owner}/${GH.repo} with this token.`:e.message}
+  }catch(e){console.error(e);if(auto){loginForm('signin');return}msg.className='msg err';msg.textContent=e.message}
 }
 function signOut(){
   try{localStorage.removeItem('ss-admin');sessionStorage.removeItem('ss-admin')}catch(e){}
-  Object.assign(ADMIN,{key:null,players:[],cur:null,staged:false});M=null;resetSources();GH.token='';loginScreen();
+  Object.assign(ADMIN,{key:null,mk:null,pass:null,players:[],cur:null,staged:false,mode:'signin'});M=null;resetSources();GH.token='';
+  $('#accountPanel').hidden=true;loginForm('signin');
 }
 function enterAdmin(){
-  document.body.classList.add('authed');$('#who').textContent=`${GH.owner}/${GH.repo}`;
+  document.body.classList.add('authed');
   M=null;showLogo('',null);showPlayers();refreshPlayers();
+}
+function openAccount(){
+  const p=$('#accountPanel');if(!p.hidden){p.hidden=true;return}
+  $('#aUser').value=ADMIN.user;['#aCur','#aNew','#aNew2','#aToken'].forEach(s=>$(s).value='');$('#aMsg').textContent='';$('#aMsg').className='msg';
+  p.hidden=false;$('#aUser').focus();
+}
+async function saveAccount(){
+  const msg=$('#aMsg'),val=id=>$(id).value;msg.className='msg';msg.textContent='Saving\u2026';
+  try{
+    if(val('#aCur')!==ADMIN.pass)throw new Error('Current password is incorrect.');
+    const u=normUser(val('#aUser'));if(!/^[a-z0-9._@-]{3,}$/.test(u))throw new Error('Use a username of at least 3 letters, numbers or . _ - @');
+    let p=ADMIN.pass;
+    if(val('#aNew')||val('#aNew2')){if(val('#aNew').length<10)throw new Error('Use a new password of at least 10 characters.');if(val('#aNew')!==val('#aNew2'))throw new Error('The new passwords don\u2019t match.');p=val('#aNew')}
+    if(val('#aToken').trim())await checkToken(val('#aToken').trim());
+    await writeAdmin(u,p,GH.token,ADMIN.mk,'Update admin sign-in');
+    const persisted=!!localStorage.getItem('ss-admin');Object.assign(ADMIN,{user:u,pass:p});remember(u,p,persisted);
+    ['#aCur','#aNew','#aNew2','#aToken'].forEach(s=>$(s).value='');
+    msg.textContent='Saved. Use the new sign-in from now on.';
+  }catch(e){console.error(e);msg.className='msg err';msg.textContent=e.message}
 }
 function showPlayers(){closeStage();setView('players');renderPlayers()}
 function closeStage(){$('#upload').hidden=true;$('#publishPanel').hidden=true}
@@ -932,7 +997,7 @@ async function refreshPlayers(){
     const dirs=(await ghList('players')).filter(x=>x.type==='dir');
     ADMIN.players=await Promise.all(dirs.map(async d=>{
       try{const env=JSON.parse(await ghRaw(`players/${d.name}/report.json`));return{slug:d.name,env,meta:await readMeta(env,ADMIN.key)}}
-      catch(e){return{slug:d.name,error:e.status===404?'No report file':'Can\u2019t unlock with this passphrase'}}
+      catch(e){return{slug:d.name,error:e.status===404?'No report file':'Can\u2019t unlock this report with the current admin key'}}
     }));
     const key=p=>(p.meta?lastFirst(p.meta.name):'\uffff'+p.slug).toLowerCase();
     ADMIN.players.sort((a,b)=>key(a).localeCompare(key(b)));
@@ -1065,14 +1130,13 @@ function wireAdmin(){
   on('#cancelUpload','click',()=>{ADMIN.cur=null;ADMIN.staged=false;resetSources();closeStage();renderPlayers()});
   on('#cancelPublish','click',()=>{ADMIN.cur=null;ADMIN.staged=false;resetSources();closeStage();renderPlayers()});
   on('#signOut','click',signOut);
+  on('#accountBtn','click',openAccount);
+  on('#aSave','click',saveAccount);
+  on('#aCancel','click',()=>{$('#accountPanel').hidden=true});
   on('#pubGo','click',publish);
   on('#pubGen','click',()=>{$('#pubPass').value=`${rand(4)}-${rand(4)}`});
 }
 
 /* ---------- boot ---------- */
 if(MODE==='player')bootPlayer();
-else{
-  wireAdmin();
-  const s=savedCreds();
-  if(s&&s.token&&s.pass){loginScreen();signIn(false)}else loginScreen();
-}
+else{wireAdmin();initAdmin()}

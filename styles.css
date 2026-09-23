@@ -309,3 +309,6 @@ body[data-mode=admin]:not([data-view=report]) .method{display:none}
 #app[hidden]{display:none}
 .btn.sm.primary{background:var(--housing);border-color:var(--housing);color:#1d1a0e}
 #pubInfo{margin:0 0 2px}
+body[data-view=report] #accountBtn{display:none}
+#accountPanel .exgrid input{font:inherit;font-size:15px;color:var(--ink);background:var(--panel-2);border:1.5px solid var(--rule);border-radius:8px;padding:7px 10px}
+.lite{font-weight:400;color:var(--ink-dim)}

@@ -21,12 +21,25 @@
       <p id="subtitle"></p>
     </div>
     <div class="hbtns">
-      <span class="who" id="who"></span>
       <button class="btn" id="backBtn" type="button">← Back to players</button>
+      <button class="btn" id="accountBtn" type="button">Account</button>
       <button class="btn" id="signOut" type="button">Sign out</button>
     </div>
   </header>
 
+
+  <section class="upload" id="accountPanel" hidden>
+    <div class="phead"><h2>Admin account</h2><button class="btn" id="aCancel" type="button">Close</button></div>
+    <div class="exgrid">
+      <label><span>Username</span><input id="aUser" type="text" autocomplete="username"></label>
+      <label><span>New password <span class="lite">(leave blank to keep)</span></span><input id="aNew" type="password" autocomplete="new-password"></label>
+      <label>Confirm new password<input id="aNew2" type="password" autocomplete="new-password"></label>
+      <label><span>New GitHub token <span class="lite">(only when replacing it)</span></span><input id="aToken" type="password" autocomplete="off"></label>
+      <label><span>Current password <span class="lite">(required to save)</span></span><input id="aCur" type="password" autocomplete="current-password"></label>
+    </div>
+    <button class="btn primary" type="button" id="aSave">Save changes</button>
+    <div class="msg" id="aMsg" role="status"></div>
+  </section>
 
   <section class="upload" id="upload" hidden>
     <div class="phead"><h2 id="uploadTitle">Upload files</h2><button class="btn" id="cancelUpload" type="button">Cancel</button></div>
