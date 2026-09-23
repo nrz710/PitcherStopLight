@@ -282,7 +282,7 @@ function hbar(label,value,i,nm,light,isAll){
       ${pkI!=null?`<div class="peak ${over?'over':''}" style="left:${posOf(pkI)}%"></div>`:''}
     </div>
     <div class="ticks"><span style="left:0%">50</span><span style="left:25%">75</span><span style="left:50%">100</span><span style="left:75%">125</span><span style="left:100%">150</span></div></div>
-    <div class="v ${has?'':'na'}"><b>${has?Math.round(i):'—'}</b>${isAll?`<span class="n1">Season avg <b>${nm.avg!=null?nm.avg.toFixed(1):'—'}</b></span><span class="n2">peak <b>${nm.peak!=null?nm.peak.toFixed(1):'—'}</b>${nm.peakDate?` | ${+nm.peakDate.slice(5,7)}/${+nm.peakDate.slice(8)}`:''}</span>`:`<span class="n1">This start <b>${has?value.toFixed(1):'—'}</b></span><span class="n2">avg <b>${nm.avg!=null?nm.avg.toFixed(1):'—'}</b> | peak <b>${nm.peak!=null?nm.peak.toFixed(1):'—'}</b></span>`}</div>
+    <div class="v ${has?'':'na'}"><b>${has?Math.round(i):'—'}</b>${isAll?`<span class="n1">Season avg <b>${nm.avg!=null?nm.avg.toFixed(1):'—'}</b></span><span class="n2">peak <b>${nm.peak!=null?nm.peak.toFixed(1):'—'}</b>${nm.peakDate?` | ${+nm.peakDate.slice(5,7)}/${+nm.peakDate.slice(8)}`:''}</span>`:`<span class="n1">This outing <b>${has?value.toFixed(1):'—'}</b></span><span class="n2">avg <b>${nm.avg!=null?nm.avg.toFixed(1):'—'}</b> | peak <b>${nm.peak!=null?nm.peak.toFixed(1):'—'}</b></span>`}</div>
   </div>`;
 }
 
