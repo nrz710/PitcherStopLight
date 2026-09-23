@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Start-by-start pitcher review: stop-light grades vs. personal norms from Baseball Savant and FanGraphs exports.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Start Signal — pitcher start review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="vendor/papaparse.min.js"></script>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="hlogo" id="hlogo" aria-hidden="true"></div>
+    <div class="brand">
+      <h1 id="title">Start Signal</h1>
+      <p id="subtitle"></p>
+    </div>
+    <button class="btn" id="toggleUpload" aria-expanded="false" aria-controls="upload">Upload files</button>
+  </header>
+
+  <section class="upload" id="upload" hidden>
+    <h2>Upload a pitcher's season</h2>
+    <p>Add one Baseball Savant pitch-by-pitch export and the three FanGraphs game logs (Stuff+, Location+, Pitching+ splits), plus the team logo. Drop the CSVs at once and each is sorted into its slot by its column headers.</p>
+    <div class="slots">
+      <button class="slot" data-slot="savant"><b>Baseball Savant pitch log</b><span>Choose .csv</span></button>
+      <button class="slot" data-slot="stf"><b>FanGraphs Stuff+ game log</b><span>Choose .csv</span></button>
+      <button class="slot" data-slot="loc"><b>FanGraphs Location+ game log</b><span>Choose .csv</span></button>
+      <button class="slot" data-slot="pit"><b>FanGraphs Pitching+ game log</b><span>Choose .csv</span></button>
+      <button class="slot logo-slot" id="logoSlot" type="button"><b>Team logo</b><span id="logoSlotTxt">Choose an image (PNG or SVG)</span></button>
+    </div>
+    <div class="drop" id="drop">Or drop the four CSV files here</div>
+    <input type="file" id="logoFile" accept="image/png,image/svg+xml,image/jpeg,image/webp,image/gif" hidden>
+    <input type="file" id="fileAny" accept=".csv,text/csv" multiple hidden>
+    <div class="msg" id="msg" role="status"></div>
+  </section>
+
+  <main id="app"><div class="empty">Loading…</div></main>
+
+  <details class="method">
+    <summary>How the lights are set</summary>
+    <div class="body">
+      <p><b>The scale.</b> Every bar is an index against this pitcher's own season: 100 is his pitch-weighted season average for that grade, and the bar runs from 50 to 150. The green line marks his personal peak, the best grade in any outing where he threw enough of that pitch (40+ pitches for the full arsenal, 10+ of a given pitch). A ▶ means the peak sits above 150.</p>
+      <p><b>Base call.</b> Index of 98 or better is a green light: at or near his norm, up through his peak. From 95 to 98 (2–5% below average) is a yellow light. Below 95 (5% or more under his average) is a red light. Each container's signal is driven by Pitching+, which blends stuff and location.</p>
+      <p><b>Context can move the call one step.</b> A pitch thrown fewer than 6 times gets no call. Fewer than 12 caps a red at yellow. Outings under 25 pitches cap the full-arsenal red at yellow. A pitch the model graded down but that beat his season called-strike-plus-whiff rate by 5+ points (without giving up harder contact) moves up one step. A green-graded pitch whose velocity sat 1.5+ mph (fastballs) or 2+ mph (secondaries) under his season norm moves down to yellow as a fatigue watch.</p>
+      <p><b>Optimal trait profile.</b> For each pitch, the tool ranks his outings by that pitch's Pitching+, takes the top third, and pools every pitch from those outings to find the shape, velocity and release that went with his best work. Traits are ranked by how closely their start-to-start average tracked the pitch's Stuff+ (weighted by pitch count). The green band is the target window; the dot is this start's average (green when inside the window, or outside it in the direction that has helped him); the grey tick is his season average. "In profile" counts pitches that landed inside the band on all three key traits at once.</p>
+      <p><b>Movement chart.</b> Horizontal and induced vertical break in inches from the pitcher's point of view (Statcast pfx_x flipped, pfx_z). Small dots are every pitch in the outing, the large ringed dot is that pitch's average for the outing, and the diamond is the average movement from his top-third outings for that pitch by Pitching+. Tap a pitch in the legend to hide or show it.</p>
+      <p><b>Result light.</b> Compares the expected wOBA allowed in this outing (Statcast expected value on contact, actual value on strikeouts, walks and HBP) to his season mark, on the same 98 / 95 thresholds. It sits beside the process grades so good-process, bad-luck starts are visible.</p>
+      <p><b>Sources and caveats.</b> FanGraphs codes Savant's sweeper as SL and slurve as CU; the tool maps these automatically. If a FanGraphs file includes a season total row, that row is used as the average; otherwise the average is computed from the game rows. Single-start grades on low-volume pitches are noisy, and trait correlations rest on roughly two dozen outings, so treat them as leads, not laws.</p>
+    </div>
+  </details>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
