@@ -122,9 +122,9 @@ function build(){
   function norm(get,c,seasonVal){
     const vals=games.map(g=>({v:get(g),n:count(g,c),g})).filter(o=>o.v!=null);
     const avg=seasonVal??wmean(vals.map(o=>[o.v,o.n||1]));
-    const qmin=c?10:40;
+    const qmin=c?MIN_PITCH:MIN_OUTING;
     let pool=vals.filter(o=>o.n>=qmin||(!c&&o.n===0&&o.g.gs===1));
-    if(!pool.length)pool=vals.filter(o=>o.n>=5);if(!pool.length)pool=vals;
+    if(!pool.length)pool=vals;
     let peak=null,peakDate=null;for(const o of pool)if(peak==null||o.v>peak){peak=o.v;peakDate=o.g.date}
     return {avg,peak,peakDate,fromSeason:seasonVal!=null};
   }
@@ -209,6 +209,10 @@ const base=i=>i==null?'off':i>=98?'green':i>=95?'yellow':'red';
 const UP={red:'yellow',yellow:'green',green:'green',off:'off'};
 const WORD={green:'Green light',yellow:'Yellow light',red:'Red light',off:'No call'};
 
+/* Grading thresholds */
+const MIN_OUTING=20;   // pitches for a full-arsenal outing to count toward his peak / get sample-size protection
+const MIN_PITCH=5;     // of a given pitch to count toward that pitch's peak / get a call at all
+const DEEP_RED=90;     // index below this is red no matter the sample or context
 function evaluate(g,m){
   const out={overall:null,pitches:{},result:null};
   const tot=g.pitches.length;
@@ -219,7 +223,7 @@ function evaluate(g,m){
     let s=base(I.pit);const notes=[];
     if(!g.fg||o.pit==null){s='off';notes.push('FanGraphs grades for this outing are not in the uploaded logs yet, so only Statcast results are shown.')}
     else{
-      if(tot&&tot<25){notes.push(`Short outing: grades rest on ${tot} pitches.`);if(s==='red'){s='yellow';notes.push('Red capped at yellow for sample size.')}}
+      if(tot&&tot<MIN_OUTING){notes.push(`Short outing: grades rest on ${tot} pitches.`);if(s==='red'&&I.pit>=DEEP_RED){s='yellow';notes.push('Marginal red capped at yellow for sample size.')}}
       const bs=base(I.stuff),bl=base(I.loc);
       if(bs==='green'&&bl==='red')notes.push('The stuff was there; location is what pulled Pitching+ down.');
       if(bl==='green'&&bs==='red')notes.push('Command held up; the raw stuff (velo/shape) was below his norm.');
@@ -245,14 +249,14 @@ function evaluate(g,m){
     let s=base(I.pit);const notes=[];const a=agg(list),sa=m.seasonAgg[c];
     if(n===0&&v.pit==null){s='off';notes.push('Not thrown.')}
     else if(v.pit==null){s='off';notes.push('No FanGraphs grade for this pitch in this outing.')}
-    else if(n<6){s='off';notes.push(`Only ${n} thrown, too few to call.`)}
+    else if(n<MIN_PITCH){s='off';notes.push(`Only ${n} thrown, too few to call.`)}
     else{
       const b=s;
-      if(b!=='green'&&a.csw!=null&&sa.csw!=null&&a.csw>=sa.csw+0.05&&(a.xwoba==null||sa.xwoba==null||a.xwoba<=sa.xwoba+0.02)){
+      if(b!=='green'&&I.pit>=DEEP_RED&&a.csw!=null&&sa.csw!=null&&a.csw>=sa.csw+0.05&&(a.xwoba==null||sa.xwoba==null||a.xwoba<=sa.xwoba+0.02)){
         s=UP[s];notes.push(`Graded down, but ${pct(a.csw)} CSW beat his ${pct(sa.csw)} norm without harder contact; bumped up one light.`)}
       const drop=(sa.velo!=null&&a.velo!=null)?sa.velo-a.velo:0;
       if(s==='green'&&drop>=(FASTBALLS.has(c)?1.5:2)){s='yellow';notes.push(`Graded well, but velo sat ${drop.toFixed(1)} mph under his norm; fatigue watch.`)}
-      if(n<12&&s==='red'){s='yellow';notes.push(`Only ${n} thrown; red capped at yellow.`)}
+      if(n<MIN_PITCH*2&&s==='red'&&I.pit>=DEEP_RED){s='yellow';notes.push(`Only ${n} thrown; marginal red capped at yellow.`)}
       const bs=base(I.stuff),bl=base(I.loc);
       if(bs==='green'&&bl==='red')notes.push('Shape and velo were fine; the misses were location.');
       if(bl==='green'&&bs==='red')notes.push('Located well, but the raw pitch quality was below his norm.');
@@ -716,7 +720,7 @@ function tryBuild(){
     if(pendingLogo){saveLogo(M.team,pendingLogo);pendingLogo=null}
     const missing=SLOTS.filter(s=>!sources[s[0]]).map(s=>({stf:'Stuff+',loc:'Location+',pit:'Pitching+'})[s[0]]);
     msg.className='msg';msg.textContent=`Loaded ${M.games.length} appearances.`+(missing.length?` Missing: ${missing.join(', ')} log.`:'');
-    render();syncButtons();openPublish();
+    ADMIN.staged=true;openPublish();
   }catch(err){console.error(err);msg.className='msg err';msg.textContent='Could not build the dashboard: '+err.message}
 }
 async function handleFiles(files,forced){
@@ -725,7 +729,7 @@ async function handleFiles(files,forced){
     if(isImage(f)){pendingLogo=await readDataURL(f);showLogo('',pendingLogo);continue}
     ingest(await f.text(),f.name,forced==='logo'?null:forced);
   }
-  if(!list.some(f=>!isImage(f))&&M){saveLogo(M.team,pendingLogo);pendingLogo=null;return}
+  if(!list.some(f=>!isImage(f))&&M&&ADMIN.staged){saveLogo(M.team,pendingLogo);pendingLogo=null;return}
   tryBuild();
 }
 
@@ -833,12 +837,24 @@ async function ghPut(path,text,message){
 async function ghDel(path,sha,message){await gh(`/contents/${path}`,{method:'DELETE',body:JSON.stringify({message,sha,branch:GH.branch})})}
 
 /* ---------- admin session ---------- */
-const ADMIN={key:null,players:[],cur:null};
+const ADMIN={key:null,players:[],cur:null,staged:false};
 const CHECK='start-signal-admin-v1';
+function setView(v){
+  document.body.dataset.view=v;
+  const pp=$('#playersPanel'),app=$('#app');
+  if(v==='report'){
+    ['#playersPanel','#upload','#publishPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});
+    app.hidden=false;render();window.scrollTo({top:0});
+  }else if(v==='players'){
+    app.hidden=true;pp.hidden=false;
+    $('#title').textContent='Start Signal';$('#subtitle').textContent='Admin · Players';
+  }else{ // login
+    ['#playersPanel','#upload','#publishPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});app.hidden=false;
+  }
+}
 function loginScreen(err,needConfirm,pre){
-  document.body.classList.remove('authed');
+  document.body.classList.remove('authed');setView('login');
   $('#title').textContent='Start Signal';$('#subtitle').textContent='Admin sign-in';showLogo('',null);
-  ['#playersPanel','#upload','#publishPanel'].forEach(s=>{const e=$(s);if(e)e.hidden=true});
   const d=detectRepo(),s=pre||savedCreds()||{};
   const v=k=>esc(s[k]||d[k]||(k==='branch'?'main':''));
   $('#app').innerHTML=`<form class="gate card login" id="login">
@@ -885,19 +901,29 @@ async function signIn(confirming){
 }
 function signOut(){
   try{localStorage.removeItem('ss-admin');sessionStorage.removeItem('ss-admin')}catch(e){}
-  ADMIN.key=null;ADMIN.players=[];ADMIN.cur=null;M=null;resetSources();GH.token='';loginScreen();
+  Object.assign(ADMIN,{key:null,players:[],cur:null,staged:false});M=null;resetSources();GH.token='';loginScreen();
 }
 function enterAdmin(){
   document.body.classList.add('authed');$('#who').textContent=`${GH.owner}/${GH.repo}`;
-  M=null;render();$('#title').textContent='Start Signal';$('#subtitle').textContent='Admin';showLogo('',null);
-  syncButtons();togglePanel('#playersPanel',true);refreshPlayers();
+  M=null;showLogo('',null);showPlayers();refreshPlayers();
 }
-function syncButtons(){const p=$('#publishBtn');if(p)p.disabled=!M}
-function togglePanel(id,force){
-  for(const[p,b]of[['#playersPanel','#playersBtn'],['#upload','#toggleUpload'],['#publishPanel','#publishBtn']]){
-    const el=$(p);if(!el)continue;const open=p===id?(force??el.hidden):false;el.hidden=!open;$(b)?.setAttribute('aria-expanded',String(open));
-  }
+function showPlayers(){closeStage();setView('players');renderPlayers()}
+function closeStage(){$('#upload').hidden=true;$('#publishPanel').hidden=true}
+function startUpload(player){
+  ADMIN.cur=player||null;ADMIN.staged=false;resetSources();
+  $('#uploadTitle').textContent=player?`Upload new files for ${player.meta.name}`:'Upload files for a new player';
+  $('#publishPanel').hidden=true;$('#upload').hidden=false;renderPlayers();
+  $('#upload').scrollIntoView({block:'nearest'});
 }
+
+/* ---------- names ---------- */
+const SUFFIX=/^(jr\.?|sr\.?|ii|iii|iv|v)$/i;
+function nameParts(n){
+  const p=String(n||'').trim().split(/\s+/);if(p.length<2)return{first:'',last:p[0]||''};
+  let li=p.length-1;const suf=SUFFIX.test(p[li])&&li>1?p[li--]:'';
+  return{first:p.slice(0,li).join(' '),last:p[li]+(suf?' '+suf:'')};
+}
+const lastFirst=n=>{const{first,last}=nameParts(n);return first?`${last}, ${first}`:last};
 
 /* ---------- players list ---------- */
 async function refreshPlayers(){
@@ -908,33 +934,34 @@ async function refreshPlayers(){
       try{const env=JSON.parse(await ghRaw(`players/${d.name}/report.json`));return{slug:d.name,env,meta:await readMeta(env,ADMIN.key)}}
       catch(e){return{slug:d.name,error:e.status===404?'No report file':'Can\u2019t unlock with this passphrase'}}
     }));
-    ADMIN.players.sort((a,b)=>(a.meta?.name||a.slug).localeCompare(b.meta?.name||b.slug));
+    const key=p=>(p.meta?lastFirst(p.meta.name):'\uffff'+p.slug).toLowerCase();
+    ADMIN.players.sort((a,b)=>key(a).localeCompare(key(b)));
+    if(ADMIN.cur)ADMIN.cur=ADMIN.players.find(p=>p.slug===ADMIN.cur.slug)||null;
     renderPlayers();
   }catch(e){console.error(e);box.innerHTML=`<p class="msg err">${esc(e.message)}</p>`}
 }
 const fdt=s=>s?new Date(s).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}):'—';
 function renderPlayers(){
-  const box=$('#playersList');
+  const box=$('#playersList');if(!box)return;
   if(!ADMIN.players.length){box.innerHTML='<p class="meta">No player folders yet. Click <b>New player</b> to upload the first one.</p>';return}
-  box.innerHTML=`<div class="tblwrap"><table class="ptab"><thead><tr><th>Player</th><th>Folder</th><th>Updated</th><th>Password</th><th></th></tr></thead><tbody>${ADMIN.players.map((p,i)=>p.error?
-    `<tr><td colspan="4"><b>${esc(p.slug)}</b> <span class="meta">${esc(p.error)}</span></td><td><div class="acts"><button class="btn sm" data-del="${i}">Delete</button></div></td></tr>`:
-    `<tr class="${ADMIN.cur?.slug===p.slug?'cur':''}"><td><b>${esc(p.meta.name)}</b><small>${esc(p.meta.team||'')}</small></td>
-      <td><a href="${esc(playerURL(p.slug))}" target="_blank" rel="noopener">${esc(p.slug)}</a> <button class="btn sm" data-copy="${esc(playerURL(p.slug))}">Copy link</button></td>
-      <td>${fdt(p.env.updated)}</td>
+  box.innerHTML=`<div class="tblwrap"><table class="ptab"><thead><tr><th>Player</th><th>Link</th><th>Password</th><th>Updated</th><th></th></tr></thead><tbody>${ADMIN.players.map((p,i)=>p.error?
+    `<tr><td colspan="4"><b>${esc(p.slug)}</b> <span class="meta">${esc(p.error)}</span></td><td><div class="acts"><button class="btn sm danger" data-del="${i}">Delete</button></div></td></tr>`:
+    `<tr class="${ADMIN.cur?.slug===p.slug&&!$('#upload').hidden?'cur':''}"><td><b>${esc(lastFirst(p.meta.name))}</b><small>${esc(p.meta.team||'')}</small></td>
+      <td><a href="${esc(playerURL(p.slug))}" target="_blank" rel="noopener">players/${esc(p.slug)}/</a> <button class="btn sm" data-copy="${esc(playerURL(p.slug))}">Copy link</button></td>
       <td><code class="pw" data-pw="${i}">••••••••</code> <button class="btn sm" data-show="${i}">Show</button> <button class="btn sm" data-copy="${esc(p.meta.password)}">Copy</button></td>
-      <td><div class="acts"><button class="btn sm" data-open="${i}">Open</button><button class="btn sm" data-upd="${i}">Upload new files</button><button class="btn sm" data-pass="${i}">Change password</button><button class="btn sm danger" data-del="${i}">Delete</button></div></td></tr>`).join('')}</tbody></table></div>`;
+      <td>${fdt(p.env.updated)}</td>
+      <td><div class="acts"><button class="btn sm primary" data-open="${i}">Open</button><button class="btn sm" data-upd="${i}">Upload new files</button><button class="btn sm" data-pass="${i}">Change password</button><button class="btn sm danger" data-del="${i}">Delete</button></div></td></tr>`).join('')}</tbody></table></div>`;
   box.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>copy(b.dataset.copy,b)));
   box.querySelectorAll('[data-show]').forEach(b=>b.addEventListener('click',()=>{const c=box.querySelector(`[data-pw="${b.dataset.show}"]`);const shown=b.textContent==='Hide';c.textContent=shown?'••••••••':ADMIN.players[+b.dataset.show].meta.password;b.textContent=shown?'Show':'Hide'}));
   box.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>openPlayer(+b.dataset.open)));
-  box.querySelectorAll('[data-upd]').forEach(b=>b.addEventListener('click',()=>{ADMIN.cur=ADMIN.players[+b.dataset.upd];resetSources();togglePanel('#upload',true);renderPlayers();setUploadTitle()}));
+  box.querySelectorAll('[data-upd]').forEach(b=>b.addEventListener('click',()=>startUpload(ADMIN.players[+b.dataset.upd])));
   box.querySelectorAll('[data-pass]').forEach(b=>b.addEventListener('click',()=>changePassword(+b.dataset.pass)));
   box.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>deletePlayer(+b.dataset.del)));
 }
 function copy(text,btn){navigator.clipboard?.writeText(text).then(()=>{const t=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=t,1200)}).catch(()=>prompt('Copy:',text))}
-function setUploadTitle(){const h=$('#uploadTitle');if(h)h.textContent=ADMIN.cur?`Upload new files for ${ADMIN.cur.meta.name}`:'Upload files for a new player'}
 async function openPlayer(i){
-  const p=ADMIN.players[i];ADMIN.cur=p;const box=$('#playersList');
-  try{loadPayload(await openAsAdmin(p.env,ADMIN.key));syncButtons();togglePanel(null);renderPlayers();window.scrollTo({top:0})}
+  const p=ADMIN.players[i];
+  try{closeStage();ADMIN.staged=false;loadPayload(await openAsAdmin(p.env,ADMIN.key));setView('report')}
   catch(e){console.error(e);alert('Could not open this report: '+e.message)}
 }
 async function changePassword(i){
@@ -949,7 +976,7 @@ async function changePassword(i){
 async function deletePlayer(i){
   const p=ADMIN.players[i];if(!confirm(`Delete ${p.meta?.name||p.slug}'s folder? The link will stop working.`))return;
   try{for(const f of await ghList(`players/${p.slug}`))await ghDel(f.path,f.sha,`Delete ${p.slug}`);
-    if(ADMIN.cur?.slug===p.slug)ADMIN.cur=null;await refreshPlayers()}
+    if(ADMIN.cur?.slug===p.slug){ADMIN.cur=null;closeStage()}await refreshPlayers()}
   catch(e){console.error(e);alert('Could not delete: '+e.message)}
 }
 
@@ -957,14 +984,16 @@ async function deletePlayer(i){
 function openPublish(){
   if(!M)return;const c=ADMIN.cur;
   $('#pubWho').textContent=M.name;
-  $('#pubTarget').innerHTML=c?`Updating <b>${esc(c.meta.name)}</b>'s folder <code>players/${esc(c.slug)}/</code>`:'New player folder';
+  $('#pubInfo').textContent=`${M.throws==='L'?'LHP':'RHP'} · ${M.team||''} · ${M.games.length} appearances (${M.yearRange})`;
+  $('#pubTarget').innerHTML=c?`Replaces the report in <b>${esc(lastFirst(c.meta.name))}</b>'s folder <code>players/${esc(c.slug)}/</code>. Link and password stay the same unless you change the password here.`:'Creates a new player folder.';
   const fs=$('#pubSlug');fs.value=c?c.slug:`p-${rand(8)}`;fs.disabled=!!c;
   $('#pubPass').value=c?c.meta.password:`${rand(4)}-${rand(4)}`;
-  $('#pubMsg').className='msg';$('#pubMsg').innerHTML='';
-  togglePanel('#publishPanel',true);
+  $('#pubMsg').className='msg';$('#pubMsg').innerHTML='';$('#pubGo').disabled=false;
+  $('#publishPanel').hidden=false;$('#publishPanel').scrollIntoView({block:'nearest'});
 }
 async function publish(){
   const msg=$('#pubMsg'),c=ADMIN.cur;
+  if(!ADMIN.staged||!M){msg.className='msg err';msg.textContent='Upload the files first.';return}
   const slug=($('#pubSlug').value||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'');
   const pass=$('#pubPass').value;
   if(!slug){msg.className='msg err';msg.textContent='Enter a folder name.';return}
@@ -976,13 +1005,13 @@ async function publish(){
     const meta={name:M.name,team:M.team,password:pass,slug,created:c?.meta.created||new Date().toISOString()};
     const env=await makeEnvelope(buildPayload(),pass,ADMIN.key,meta);
     await ghPut(`players/${slug}/report.json`,JSON.stringify(env),`${c?'Update':'Create'} report: ${slug}`);
-    if(!(await ghFile(`players/${slug}/index.html`)))await ghPut(`players/${slug}/index.html`,playerPage(),`Player page: ${slug}`);
+    await ghPut(`players/${slug}/index.html`,playerPage(),`Player page: ${slug}`);
     const url=playerURL(slug);
-    msg.innerHTML=`Published. Link: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a> <button class="btn sm" id="cpL">Copy link</button> · Password: <code>${esc(pass)}</code> <button class="btn sm" id="cpP">Copy</button><br><span class="meta">GitHub Pages usually shows the update within a few minutes.</span>`;
-    on('#cpL','click',e=>copy(url,e.target));on('#cpP','click',e=>copy(pass,e.target));
-    await refreshPlayers();ADMIN.cur=ADMIN.players.find(p=>p.slug===slug)||null;renderPlayers();
-  }catch(e){console.error(e);msg.className='msg err';msg.textContent='Could not publish: '+e.message}
-  finally{$('#pubGo').disabled=false}
+    $('#upload').hidden=true;ADMIN.staged=false;
+    msg.innerHTML=`Published ${esc(M.name)}. Link: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a> <button class="btn sm" id="cpL">Copy link</button> · Password: <code>${esc(pass)}</code> <button class="btn sm" id="cpP">Copy</button> <button class="btn sm" id="pubDone">Done</button><br><span class="meta">GitHub Pages usually shows the update within a few minutes.</span>`;
+    on('#cpL','click',e=>copy(url,e.target));on('#cpP','click',e=>copy(pass,e.target));on('#pubDone','click',()=>{ADMIN.cur=null;closeStage();renderPlayers()});
+    ADMIN.cur={slug};await refreshPlayers();
+  }catch(e){console.error(e);msg.className='msg err';msg.textContent='Could not publish: '+e.message;$('#pubGo').disabled=false}
 }
 function playerPage(){
   const method=(document.querySelector('.method')?.outerHTML||'').replace('<details class="method"','<details class="method" hidden');
@@ -1026,15 +1055,15 @@ function wireAdmin(){
   on('#fileAny','change',e=>{handleFiles(e.target.files,forced);forced=null;e.target.value=''});
   on('#pickAll','click',()=>{forced=null;$('#fileAny').click()});
   on('#logoSlot','click',()=>$('#logoFile').click());
-  on('#logoFile','change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const d=await readDataURL(f);if(M)saveLogo(M.team,d);else{pendingLogo=d;showLogo('',d)}});
+  on('#logoFile','change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const d=await readDataURL(f);if(M&&ADMIN.staged)saveLogo(M.team,d);else{pendingLogo=d;showLogo('',d)}});
   const drop=$('#drop');
   if(drop){drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
     drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');handleFiles(e.dataTransfer.files)})}
-  on('#playersBtn','click',()=>togglePanel('#playersPanel'));
-  on('#toggleUpload','click',()=>{if($('#upload').hidden&&!M)ADMIN.cur=null;setUploadTitle();togglePanel('#upload')});
-  on('#publishBtn','click',()=>{if($('#publishPanel').hidden)openPublish();else togglePanel(null)});
-  on('#newPlayer','click',()=>{ADMIN.cur=null;M=null;resetSources();render();syncButtons();showLogo('',null);$('#title').textContent='Start Signal';$('#subtitle').textContent='Admin';setUploadTitle();togglePanel('#upload',true);renderPlayers()});
+  on('#backBtn','click',showPlayers);
+  on('#newPlayer','click',()=>startUpload(null));
   on('#refreshPlayers','click',refreshPlayers);
+  on('#cancelUpload','click',()=>{ADMIN.cur=null;ADMIN.staged=false;resetSources();closeStage();renderPlayers()});
+  on('#cancelPublish','click',()=>{ADMIN.cur=null;ADMIN.staged=false;resetSources();closeStage();renderPlayers()});
   on('#signOut','click',signOut);
   on('#pubGo','click',publish);
   on('#pubGen','click',()=>{$('#pubPass').value=`${rand(4)}-${rand(4)}`});

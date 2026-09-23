@@ -303,3 +303,9 @@ body:not(.authed) .hbtns{display:none}
 #pubSlug:disabled{opacity:.7}
 .msg a{color:var(--ink)}
 body[data-mode=admin]:not(.authed) .method{display:none}
+body[data-view=players] #backBtn,body[data-view=login] #backBtn{display:none}
+body[data-view=players] .hlogo{display:none}
+body[data-mode=admin]:not([data-view=report]) .method{display:none}
+#app[hidden]{display:none}
+.btn.sm.primary{background:var(--housing);border-color:var(--housing);color:#1d1a0e}
+#pubInfo{margin:0 0 2px}
