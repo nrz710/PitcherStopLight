@@ -90,7 +90,7 @@ function build(){
       spin:num(r.release_spin_rate),ext:num(r.release_extension),relZ:num(r.release_pos_z),relX:num(r.release_pos_x)!=null?Math.abs(num(r.release_pos_x)):null,
       arm:num(r.arm_angle),mx:num(r.pfx_x)!=null?-num(r.pfx_x)*12:null,my:num(r.pfx_z)!=null?num(r.pfx_z)*12:null,desc,swing:SWING.has(desc),whiff:WHIFF.has(desc),csw:desc==='called_strike'||WHIFF.has(desc),
       inZone:zone!=null&&zone>=1&&zone<=9,hasZone:zone!=null,ev:r.events||'',
-      wDen:wd,xw:wd===1?((ls!=null&&ew!=null)?ew:wv):null,rv:num(r.delta_pitcher_run_exp),
+      wDen:wd,xw:wd===1?((ls!=null&&ew!=null)?ew:wv):null,xwc:desc==='hit_into_play'?(ew!=null?ew:wv):null,rv:num(r.delta_pitcher_run_exp),
       runs:(num(r.post_bat_score)!=null&&num(r.bat_score)!=null)?num(r.post_bat_score)-num(r.bat_score):0,
       inn:num(r.inning),top:r.inning_topbot==='Top',outs:num(r.outs_when_up),b1:occ(r.on_1b),b2:occ(r.on_2b),b3:occ(r.on_3b),hs:num(r.home_score),as:num(r.away_score),fs:num(r.fld_score),bs:num(r.bat_score),balls:num(r.balls),strikes:num(r.strikes),
       opp:r.inning_topbot==='Top'?r.away_team:(r.inning_topbot==='Bot'?'@'+r.home_team:''),team:r.inning_topbot==='Top'?r.home_team:(r.inning_topbot==='Bot'?r.away_team:'')};
@@ -175,9 +175,9 @@ function agg(list){
   const sw=list.filter(p=>p.swing).length,wh=list.filter(p=>p.whiff).length,cs=list.filter(p=>p.csw).length;
   const zoned=list.filter(p=>p.hasZone),inZ=zoned.filter(p=>p.inZone).length,out=zoned.filter(p=>!p.inZone);
   const ch=out.filter(p=>p.swing).length;
-  const pa=list.filter(p=>p.xw!=null);
+  const pa=list.filter(p=>p.xw!=null),bip=list.filter(p=>p.xwc!=null);
   return {n,velo:f('velo'),csw:cs/n,whiff:sw?wh/sw:null,zone:zoned.length?inZ/zoned.length:null,chase:out.length?ch/out.length:null,
-    xwoba:pa.length?pa.reduce((s,p)=>s+p.xw,0)/pa.length:null,pa:pa.length,rv:list.reduce((s,p)=>s+(p.rv||0),0)};
+    xwoba:pa.length?pa.reduce((s,p)=>s+p.xw,0)/pa.length:null,pa:pa.length,xwobacon:bip.length?bip.reduce((s,p)=>s+p.xwc,0)/bip.length:null,bip:bip.length,rv:list.reduce((s,p)=>s+(p.rv||0),0)};
 }
 function gameLine(list){
   let outs=0,K=0,BB=0,H=0,HR=0,R=0,HBP=0,BF=0;
@@ -420,7 +420,7 @@ function pitchCard(c,g,m){
       const key=pr.ok&&pr.keys.includes(t.k)?'<span class="keyt">key</span>':'';
       return `<tr><td>${t.label}${key}</td><td>${mean(sv).toFixed(t.dec)} <small>${t.unit}</small></td><td>${pv.length?mean(pv).toFixed(t.dec)+' <small>'+t.unit+'</small>':'—'}</td></tr>`}).join('');
     rows=`<table class="ttab"><thead><tr><th>Trait</th><th>Season avg</th><th>Peak${pd?` (${+pd.slice(5,7)}/${+pd.slice(8)})`:''}</th></tr></thead><tbody>${tr}</tbody></table>`;
-    if(pr.ok)prof=st('In profile',pr.seasonRate,null,pct);
+    if(pr.ok)prof=st('Profile%',pr.seasonRate,null,pct);
   }else if(pr.ok){
     rows=[...pr.traits].sort((x,y)=>(pr.keys.includes(y.k)-pr.keys.includes(x.k))||Math.abs(y.rS??0)-Math.abs(x.rS??0)).map(t=>{
       const vals=list.map(p=>p[t.k]).filter(v=>v!=null);const gm=vals.length?mean(vals):null;
@@ -430,11 +430,11 @@ function pitchCard(c,g,m){
       return `<div class="tr"><div class="n">${t.label}${key}<small>r ${r==null?'—':r.toFixed(2)}</small></div>${strip(t,gm,goodSide)}
         <div class="val">${gm==null?'—':gm.toFixed(t.dec)+' '+t.unit}<small>target ${t.target.toFixed(t.dec)} · Δ ${d==null?'—':(d>=0?'+':'')+d.toFixed(t.dec)}</small></div></div>`}).join('');
     const ev2=list.filter(pr.evaluable);const rate=ev2.length?ev2.filter(pr.inProf).length/ev2.length:null;
-    prof=st('In profile',rate,pr.seasonRate,pct);
+    prof=st('Profile%',rate,pr.seasonRate,pct);
   }
   return `<article class="card pcard">
     <div class="ph"><h3>${esc(m.pname[c])}</h3>${g.isAll?'':sig(ev.s,'',`${m.pname[c]}: ${WORD[ev.s]}`)}</div>
-    <div class="stats">${st('Thrown',ev.n,null,v=>v==null?'—':v)}${st('Usage',tot?ev.n/tot:null,m.cnt[c]/m.seasonAgg.all.n,pct)}${st('Velo',a.velo,sa.velo,v=>fmt(v,1))}${st('CSW',a.csw,sa.csw,pct)}${st('Whiff',a.whiff,sa.whiff,pct)}${st('Zone',a.zone,sa.zone,pct)}${st('Chase',a.chase,sa.chase,pct)}${st('xwOBA',a.xwoba,sa.xwoba,woba)}${prof}</div>
+    <div class="stats">${st('Thrown',ev.n,null,v=>v==null?'—':v)}${st('Usage',tot?ev.n/tot:null,m.cnt[c]/m.seasonAgg.all.n,pct)}${st('Velo',a.velo,sa.velo,v=>fmt(v,1))}${st('CSW',a.csw,sa.csw,pct)}${st('Whiff',a.whiff,sa.whiff,pct)}${st('Zone',a.zone,sa.zone,pct)}${st('Chase',a.chase,sa.chase,pct)}${st('xwOBA',a.xwoba,sa.xwoba,woba)}${st('xwOBAcon',a.xwobacon,sa.xwobacon,woba)}${prof}</div>
     ${rows?`<div class="traits"><h4>Trait profile</h4>${rows}</div>`:''}
   </article>`;
 }
@@ -536,7 +536,7 @@ const MET=[
   {k:'pit',label:'Pitching+',type:'grade',dec:1},{k:'stuff',label:'Stuff+',type:'grade',dec:1},{k:'loc',label:'Location+',type:'grade',dec:1},
   ...TRAITS.map(t=>({k:t.k,label:t.label,type:'trait',dec:t.dec,unit:t.unit})),
   {k:'csw',label:'CSW%',type:'rate',pct:true},{k:'whiff',label:'Whiff%',type:'rate',pct:true},{k:'zone',label:'Zone%',type:'rate',pct:true},
-  {k:'chase',label:'Chase%',type:'rate',pct:true},{k:'xwoba',label:'xwOBA',type:'rate',dec:3},{k:'usage',label:'Usage%',type:'rate',pct:true}
+  {k:'chase',label:'Chase%',type:'rate',pct:true},{k:'xwoba',label:'xwOBA',type:'rate',dec:3},{k:'xwobacon',label:'xwOBAcon',type:'rate',dec:3},{k:'usage',label:'Usage%',type:'rate',pct:true}
 ];
 const METK=Object.fromEntries(MET.map(x=>[x.k,x]));
 const GRANS=[['pitch','By pitch'],['outing','By outing'],['roll5','Rolling 5 outings'],['month','By month'],['half','By half'],['year','By year']];
@@ -544,7 +544,7 @@ const TS={series:[{scope:'overall',k:'pit'}],gran:'outing',pickScope:'overall',p
 const CMP={a:null,b:null};
 const scopeName=(m,s)=>s==='overall'?'Full arsenal':s==='ALLP'?'All pitches':m.pname[s];
 const scopeCol=s=>(s==='overall'||s==='ALLP')?'#F0F1F2':(PCOL[s]||'#999');
-const fmtM=(mt,v)=>v==null?'—':mt.pct?(v*100).toFixed(1)+'%':mt.k==='xwoba'?woba(v):v.toFixed(mt.dec??1);
+const fmtM=(mt,v)=>v==null?'—':mt.pct?(v*100).toFixed(1)+'%':(mt.k==='xwoba'||mt.k==='xwobacon')?woba(v):v.toFixed(mt.dec??1);
 function validScope(mt,s){if(mt.type==='grade')return s!=='ALLP';if(mt.k==='usage')return s!=='overall'&&s!=='ALLP';return s!=='overall'}
 function halfKey(d){return d.slice(0,4)+(d.slice(5)<='07-15'?' 1st half':' 2nd half')}
 function bkey(d,gran){return gran==='month'?d.slice(0,7):gran==='half'?halfKey(d):gran==='year'?d.slice(0,4):d}
