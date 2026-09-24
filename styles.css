@@ -312,3 +312,21 @@ body[data-mode=admin]:not([data-view=report]) .method{display:none}
 body[data-view=report] #accountBtn{display:none}
 #accountPanel .exgrid input{font:inherit;font-size:15px;color:var(--ink);background:var(--panel-2);border:1.5px solid var(--rule);border-radius:8px;padding:7px 10px}
 .lite{font-weight:400;color:var(--ink-dim)}
+.banner{grid-template-columns:minmax(0,1fr) 180px calc((100% - 14px) / 2.2)}
+@media (max-width:860px){.banner{grid-template-columns:1fr}}
+.sit{position:relative;display:flex;justify-content:center;align-items:center;padding:12px 10px;overflow:hidden}
+.sit-in{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;width:100%}
+.sit h3{font-family:var(--display);font-weight:800;font-size:22px;margin:0;line-height:1}
+.sit .sc{font-weight:700;font-size:15px}
+.sit .sc span{font-weight:500;color:var(--ink-dim);font-size:13px}
+.sit .bases{width:92px;height:auto}
+.sit .bases .on{fill:#F4C20D}
+.sit .bases .off{fill:#8A8D90}
+.sit .co{font-size:15px;font-weight:500}
+.sit .li{display:flex;align-items:baseline;gap:5px;margin-top:2px}
+.sit .li b{font-family:var(--display);font-weight:800;font-size:24px;line-height:1}
+.sit .li span{font-size:12px;color:var(--ink-dim);font-weight:600}
+.sit .li.big{flex-direction:column;align-items:center;gap:0;margin:6px 0}
+.sit .li.big b{font-size:34px}
+.sit.gs .sit-in{opacity:.28;filter:grayscale(1)}
+.sit .gsmark{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--display);font-weight:900;font-size:56px;color:#fff;letter-spacing:2px;text-shadow:0 2px 10px rgba(0,0,0,.5)}
