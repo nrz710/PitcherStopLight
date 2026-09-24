@@ -468,7 +468,7 @@ function render(){
     <section class="card verdict">
       ${isAll?'':sig(e.overall.s,'lg')}
       ${isAll?`<div><h2>Season baseline</h2><p><b>${fd(m.games[0].date)} – ${fd(m.games[m.games.length-1].date)}</b> · ${m.games.length} appearances · ${nStarts} starts</p></div>`
-        :`<div><h2>${WORD[e.overall.s]}</h2><p><b>${esc(dLabel)} ${esc(g.opp)}</b> · ${role}</p></div>`}
+        :`<div><h2>${WORD[e.overall.s]}</h2><p><b>${esc(dLabel)} ${esc(g.opp)}</b></p></div>`}
     </section>
     ${situationCard(g,m,isAll)}
     <section class="card">
