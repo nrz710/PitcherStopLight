@@ -301,13 +301,14 @@ function basesSVG(b1,b2,b3){
 }
 function situationCard(g,m,isAll){
   if(isAll){
-    const rel=m.games.filter(x=>x.entry&&!x.entry.starter&&x.entry.li!=null);
-    const starts=m.games.filter(x=>x.entry?.starter).length;
-    if(!rel.length)return `<section class="card sit gs"><div class="sit-in"><h3>Situation</h3><div class="sc">&nbsp;</div>${basesSVG(0,0,0)}<div class="co">&nbsp;</div><div class="li"><b>—</b><span>gmLI</span></div></div><span class="gsmark">GS</span></section>`;
-    const avg=rel.reduce((s,x)=>s+x.entry.li,0)/rel.length;
-    return `<section class="card sit"><div class="sit-in"><h3>Situation</h3><div class="sc">${starts} GS · ${rel.length} relief</div>
-      <div class="li big"><b>${avg.toFixed(2)}</b><span>avg gmLI (relief)</span></div>
-      <div class="co">max ${Math.max(...rel.map(x=>x.entry.li)).toFixed(1)}</div></div></section>`;
+    const gs=m.games.filter(x=>x.entry?x.entry.starter:x.gs===1).length,rel=m.games.length-gs;
+    const cnt={};for(const x of m.games){const i=x.entry?.inn??x.pitches[0]?.inn;if(i!=null)cnt[i]=(cnt[i]||0)+1}
+    const top=Math.max(0,...Object.values(cnt));
+    const modes=Object.keys(cnt).filter(k=>cnt[k]===top).map(Number).sort((a,b)=>a-b);
+    return `<section class="card sit"><div class="sit-in"><h3>Situation</h3>
+      <div class="cnt"><b>${gs}</b> Games Started</div>
+      <div class="cnt"><b>${rel}</b> Relief</div>
+      <div class="mode"><span>Most commonly entered in:</span><b>${modes.length?modes.map(ord).join(' / '):'—'}</b></div></div></section>`;
   }
   const e=g.entry;
   if(!e||e.starter)return `<section class="card sit gs" aria-label="Started the game"><div class="sit-in"><h3>Situation</h3><div class="sc">Tied</div>${basesSVG(0,0,0)}<div class="co">0-0, 0 out</div><div class="li"><b>—</b><span>gmLI</span></div></div><span class="gsmark">GS</span></section>`;
