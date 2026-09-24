@@ -260,6 +260,7 @@ function evaluate(g,m){
     // Ground rules: a quality outing can't be red
     if(s==='red'&&Lr.outs>=15&&Lr.R<=3)s='yellow';               // 5+ IP, 3 or fewer runs
     if(s==='red'&&!starter&&Lr.outs>=3&&Lr.R===0)s='yellow';      // reliever finishes an inning (3+ outs) scoreless
+    if(s==='green'&&!starter&&a.rv<0)s='yellow';                 // relief outing with negative run value tops out at yellow
     out.result={a,ri,s,line:gameLine(g.pitches)};
     const os=out.overall.s;
     if(os!=='off'&&s!=='off'){
